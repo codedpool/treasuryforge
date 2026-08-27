@@ -6,11 +6,13 @@ paper wallet actually has (no historical price series for the whole
 basket, no scheduler):
 
 - max_drawdown / sharpe are computed from equity_snapshots
-  (wallet.record_equity_snapshot), an event-driven series recorded on every
-  execute_trade call and daily-baseline rollover -- not a fixed-interval
-  mark-to-market curve. Resolution is exactly as good as how often the
-  agent trades or checks in; a portfolio that moves and is never observed
-  between snapshots won't show up.
+  (wallet.record_equity_snapshot), recorded on every execute_trade call,
+  each daily-baseline rollover, and opportunistically on a timer checked
+  lazily on every get_portfolio call (wallet._record_periodic_snapshot_if_due,
+  every 5 minutes at most) -- not a true fixed-interval mark-to-market
+  curve, since that periodic top-up only fires when something actually
+  calls get_portfolio. A portfolio that moves and is never read during a
+  gap that long still won't show up.
 - sharpe_ratio is unannualized (mean/stdev of snapshot-to-snapshot % returns,
   not scaled by sqrt(periods per year)) -- annualizing implies a regular
   time interval between observations, which event-driven snapshots don't
