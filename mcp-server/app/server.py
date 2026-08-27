@@ -20,6 +20,15 @@ Tool surface:
     transaction, regardless of whether the agent called it or what it
     passed in `reason` -- see execute_trade's docstring below.
 
+Read-only UI routes (for the frontend dashboard, not the agent -- the
+dashboard is a plain browser app and can't speak the MCP protocol the tools
+above are exposed over, so these are the same underlying functions wrapped
+as plain REST):
+  - GET /ui/portfolio: wallet.get_portfolio().
+  - GET /ui/transactions: wallet.get_transaction_log().
+  - GET /ui/metrics: metrics.get_wallet_metrics().
+  - GET /ui/risk-summary: risk.portfolio_risk_summary().
+
 Debug-only routes (never on the live decision path -- see README):
   - POST /debug/reset: wipes and reseeds the wallet.
   - POST /debug/trigger-approval: synthesizes a daily-drawdown breach so a
@@ -165,6 +174,26 @@ async def require_shared_secret(request: Request, call_next):
 @api.get("/health")
 async def health():
     return {"status": "ok", "dry_run": config.DRY_RUN}
+
+
+@api.get("/ui/portfolio")
+async def ui_portfolio():
+    return wallet.get_portfolio()
+
+
+@api.get("/ui/transactions")
+async def ui_transactions(limit: int = 50):
+    return wallet.get_transaction_log(limit=limit)
+
+
+@api.get("/ui/metrics")
+async def ui_metrics():
+    return metrics.get_wallet_metrics()
+
+
+@api.get("/ui/risk-summary")
+async def ui_risk_summary():
+    return risk.portfolio_risk_summary()
 
 
 @api.post("/debug/reset")
