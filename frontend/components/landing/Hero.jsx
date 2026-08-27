@@ -68,20 +68,25 @@ export default function Hero() {
             computed risk limits, and held for a human at the gate — not a
             chat box that happens to place trades.
           </p>
-          <div className="mt-9 flex flex-wrap items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="rounded bg-signal-amber px-5 py-3 font-mono text-sm font-semibold uppercase tracking-wideish text-ink transition hover:brightness-110"
-            >
-              Open the dashboard
-            </Link>
-            <a
-              href="#how-it-works"
-              className="font-mono text-sm uppercase tracking-wideish text-ink-soft underline decoration-ink-line underline-offset-4 transition hover:text-ink-bright"
-            >
-              See the decision loop
-            </a>
-          </div>
+        </div>
+
+        {/* Pushed to the bottom of the section (mt-auto), not sitting
+            right under the copy -- that put both buttons on the busiest,
+            brightest part of the image. Down here they sit inside the
+            bottom gradient's solid-ink fade, where they actually read. */}
+        <div className="mt-auto flex flex-wrap items-center gap-4 pt-10">
+          <Link
+            href="/dashboard"
+            className="rounded bg-signal-amber px-5 py-3 font-mono text-sm font-semibold uppercase tracking-wideish text-ink transition hover:brightness-110"
+          >
+            Open the dashboard
+          </Link>
+          <a
+            href="#how-it-works"
+            className="font-mono text-sm uppercase tracking-wideish text-ink-soft underline decoration-ink-line underline-offset-4 transition hover:text-ink-bright"
+          >
+            See the decision loop
+          </a>
         </div>
       </div>
     </section>
