@@ -108,26 +108,15 @@ def _project_trade(asset: str, side: str, quantity: float | None, usd_amount: fl
     }
 
 
-def check_risk_limits(
-    asset: str,
-    side: str,
-    quantity: float | None = None,
-    usd_amount: float | None = None,
-) -> dict:
-    """Computed answer to "would this trade breach a risk limit" -- call this
-    with the exact same arguments you're about to pass to execute_trade,
-    before proposing it. Read-only; safe to call as often as needed."""
-    projection = _project_trade(asset, side, quantity, usd_amount)
-    total_usd = projection["total_usd"]
-
-    # The day-start baseline is rolled by wallet.get_portfolio (called inside
-    # _project_trade above), not here -- see wallet.py's docstring on why.
-    day_start = projection["day_start_value_usd"]
+def _daily_drawdown_and_streak(total_usd: float, day_start: float) -> dict:
+    """The two trigger computations that depend only on portfolio totals,
+    not a specific proposed trade -- shared by check_risk_limits and
+    portfolio_risk_summary. Takes already-fetched totals rather than
+    fetching its own, so check_risk_limits (called on every proposed trade)
+    never pays for a second live-price round trip just to compute these."""
     drawdown_pct = max(0.0, (day_start - total_usd) / day_start * 100) if day_start > 0 else 0.0
-
     streak = consecutive_losses()
-
-    triggers = {
+    return {
         "daily_drawdown": {
             "breached": drawdown_pct >= DAILY_DRAWDOWN_LIMIT_PCT,
             "current_pct": round(drawdown_pct, 3),
@@ -140,6 +129,44 @@ def check_risk_limits(
             "streak": streak,
             "limit": CONSECUTIVE_LOSS_LIMIT,
         },
+    }
+
+
+def portfolio_risk_summary() -> dict:
+    """Daily-drawdown and consecutive-losses trigger state, plus the static
+    thresholds for the two trade-specific triggers (concentration,
+    sell_all) that only make sense evaluated against a proposed trade -- see
+    check_risk_limits. Used directly by the dashboard's risk panel, which
+    has no specific trade to check against. Fetches its own portfolio
+    snapshot (one live-price round trip); check_risk_limits computes the
+    same two triggers from a projection it already has rather than calling
+    this, so a proposed-trade check never pays for a second fetch."""
+    portfolio = wallet.get_portfolio()
+    shared = _daily_drawdown_and_streak(portfolio["total_usd"], portfolio["day_start_value_usd"])
+    return {
+        **shared,
+        "concentration_limit_pct": MAX_SINGLE_ASSET_PCT,
+        "sell_all_threshold_pct": SELL_ALL_THRESHOLD_PCT,
+    }
+
+
+def check_risk_limits(
+    asset: str,
+    side: str,
+    quantity: float | None = None,
+    usd_amount: float | None = None,
+) -> dict:
+    """Computed answer to "would this trade breach a risk limit" -- call this
+    with the exact same arguments you're about to pass to execute_trade,
+    before proposing it. Read-only; safe to call as often as needed."""
+    projection = _project_trade(asset, side, quantity, usd_amount)
+
+    # The day-start baseline is rolled by wallet.get_portfolio (called inside
+    # _project_trade above), not here -- see wallet.py's docstring on why.
+    shared = _daily_drawdown_and_streak(projection["total_usd"], projection["day_start_value_usd"])
+
+    triggers = {
+        **shared,
         "concentration": {
             "breached": projection["projected_concentration_pct"] > MAX_SINGLE_ASSET_PCT,
             "asset": projection["asset"],

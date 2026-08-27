@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -247,6 +248,78 @@ def test_write_and_read_day_start_roundtrip(isolated_db):
     date, value = wallet.read_day_start()
     assert date == "2026-08-27"
     assert value == 12_345.67
+
+
+def test_day_start_rollover_is_thread_safe(tmp_path, monkeypatch):
+    # The /ui/* routes run get_portfolio concurrently in FastAPI's
+    # threadpool (see server.py's module docstring) -- on the first read of
+    # a new UTC day, several real OS threads could each see the stale
+    # stored date before any of them writes, each recording its own
+    # duplicate "day_start" snapshot, without _day_start_lock serializing
+    # the read-check-write sequence.
+    #
+    # A single shared sqlite3.Connection (the isolated_db fixture's usual
+    # model) isn't safe for genuinely concurrent use even with
+    # check_same_thread=False -- Python's sqlite3 module itself isn't
+    # thread-safe for concurrent statement execution on one Connection
+    # object, which produced a spurious sqlite3.InterfaceError unrelated to
+    # the lock this test actually exercises. Giving each thread its own
+    # connection to the same file matches how db.get_conn() really behaves
+    # in production (threading.local(), one connection per thread).
+    import sqlite3
+
+    from conftest import _crypto_price, _crypto_prices, _equity_price
+    from app import db, seed as seed_module
+
+    db_path = tmp_path / "thread_test.db"
+    local = threading.local()
+
+    def get_conn():
+        conn = getattr(local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.executescript(db.SCHEMA)
+            conn.commit()
+            db._run_migrations(conn)
+            local.conn = conn
+        return conn
+
+    monkeypatch.setattr(db, "get_conn", get_conn)
+    monkeypatch.setattr(wallet, "get_crypto_price", _crypto_price)
+    monkeypatch.setattr(wallet, "get_crypto_prices", _crypto_prices)
+    monkeypatch.setattr(wallet, "get_equity_price", _equity_price)
+    monkeypatch.setattr(wallet, "market_open", lambda: True)
+    monkeypatch.setattr(seed_module, "get_crypto_prices", _crypto_prices)
+    monkeypatch.setattr(seed_module, "get_equity_price", _equity_price)
+
+    wallet._ensure_seeded()  # seed once, single-threaded, before racing --
+    # isolates the (already-tested, already-locked) seeding race from the
+    # day-start race this test targets. day_start itself is still unset.
+
+    barrier = threading.Barrier(6)
+    errors = []
+
+    def worker():
+        try:
+            barrier.wait()  # all six threads hit the rollover check together
+            wallet.get_portfolio()
+        except Exception as exc:  # pragma: no cover - surfaced via `errors`
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"worker thread(s) raised: {errors}"
+
+    day_start_snapshots = get_conn().execute(
+        "SELECT COUNT(*) FROM equity_snapshots WHERE reason = 'day_start'"
+    ).fetchone()[0]
+    assert day_start_snapshots == 1
 
 
 # --- Realized P&L / cost basis -------------------------------------------

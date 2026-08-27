@@ -23,6 +23,7 @@ Read-only: only reads, never touches holdings/transactions/meta.
 """
 
 import statistics
+from datetime import datetime, timezone
 
 from . import db, wallet
 
@@ -39,6 +40,40 @@ def _equity_series() -> list[float]:
     series = [r["total_usd"] for r in rows]
     series.append(wallet.get_portfolio()["total_usd"])
     return series
+
+
+def get_equity_curve(limit: int | None = None) -> list[dict]:
+    """Same series _equity_series() computes, but with timestamps and the
+    recording reason attached -- max_drawdown_pct/sharpe_ratio only need the
+    bare values, but the dashboard's P&L chart needs a time axis to plot
+    against.
+
+    equity_snapshots is append-only and grows on every trade, day-start
+    rollover, and periodic snapshot (wallet.PERIODIC_SNAPSHOT_INTERVAL_SECONDS);
+    the dashboard polls this every 15 seconds. Without a cap, a long-running
+    session would mean an ever-growing query, response, and chart on every
+    single poll (a real Qodo finding). `limit`, if given, returns the most
+    recent `limit` points -- still oldest-first -- via a subquery so the
+    LIMIT applies before the final ascending sort, not after."""
+    conn = db.get_conn()
+    if limit is not None:
+        rows = conn.execute(
+            "SELECT timestamp, total_usd, reason FROM ("
+            "  SELECT id, timestamp, total_usd, reason FROM equity_snapshots ORDER BY id DESC LIMIT ?"
+            ") ORDER BY id ASC",
+            (limit,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT timestamp, total_usd, reason FROM equity_snapshots ORDER BY id ASC"
+        ).fetchall()
+    points = [{"timestamp": r["timestamp"], "total_usd": r["total_usd"], "reason": r["reason"]} for r in rows]
+    points.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total_usd": wallet.get_portfolio()["total_usd"],
+        "reason": "now",
+    })
+    return points
 
 
 def max_drawdown_pct(series: list[float] | None = None) -> float | None:

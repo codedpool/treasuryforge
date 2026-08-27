@@ -53,9 +53,16 @@ def _equity_price(symbol: str, *, open_market: bool = True) -> dict:
 def isolated_db(tmp_path, monkeypatch):
     """A fresh, schema-initialized SQLite database for one test, with
     db.get_conn patched to always return it -- never touches the real
-    wallet.db or any other test's state."""
+    wallet.db or any other test's state.
+
+    check_same_thread=False so a test can exercise real cross-thread races
+    (e.g. test_wallet.py's day-start-rollover thread-safety test) against
+    this one shared connection -- production code never shares a connection
+    across threads (db.py hands each thread its own via threading.local()),
+    but this fixture intentionally does, specifically to make that kind of
+    test possible without standing up a full per-thread-connection setup."""
     db_path = tmp_path / "test_wallet.db"
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(db.SCHEMA)

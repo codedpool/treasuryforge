@@ -80,6 +80,15 @@ flowchart TB
 
     DB[("SQLite paper wallet\nholdings · transactions\nrisk_snapshot · equity_snapshots")]
 
+    subgraph FE["Frontend (this repo, frontend/)"]
+        Dashboard["Dashboard + landing page"]
+    end
+    REST["GET /ui/* — plain REST, not MCP"]
+
+    Dashboard -->|server-side, secret attached| REST
+    REST --> DB
+    Dashboard -.->|session list, link-out only| TF
+
     Agent -->|MCP call| Portfolio
     Agent -->|MCP call| Prices
     Agent -->|MCP call| Risk
@@ -242,6 +251,13 @@ server (`treasuryforge-wallet`).
 | `get_wallet_metrics` | No | Realized/unrealized P&L, win rate, max drawdown, Sharpe |
 | `execute_trade` | **Yes — the only one** | Buy/sell; approval-gated; computes and stores its own risk snapshot |
 
+The frontend dashboard doesn't call any of these directly — a browser can't
+speak MCP. It reads the same underlying data through a separate, plain-REST
+`GET /ui/*` surface on the same server (see
+[Design decisions](#design-decisions)), which wraps these same functions
+but was never registered with TrueForge and isn't part of the agent's own
+tool surface.
+
 ## How to run it
 
 ### Prerequisites
@@ -341,9 +357,9 @@ running TrueForge on the default port, set `TRUEFORGE_URL` first.
 
 ### 4. Talk to it
 
-Until this repo's own frontend exists, drive it via TrueForge's own UI or
-its HTTP API directly (substitute your own host:port if you didn't run
-TrueForge on its default `8790`):
+Drive the agent itself via TrueForge's own UI, or its HTTP API directly
+(substitute your own host:port if you didn't run TrueForge on its default
+`8790`):
 
 ```bash
 curl -X POST http://localhost:8790/api/v1/sessions \
@@ -356,10 +372,48 @@ curl -X POST http://localhost:8790/api/v1/sessions/{id}/turns \
   -d '{"input":[{"type":"user.message","content":"Review the portfolio and propose a trade if warranted."}]}'
 ```
 
+### 5. Frontend dashboard
+
+A plain JS/JSX Next.js 14 app (`frontend/`) — landing page plus a dashboard
+reading the wallet server's data live: portfolio, P&L/allocation charts,
+decision log, risk panel (with the four force-trigger demo buttons), a
+TrueForge-connectivity-aware approval queue, Quant Desk, and a Markdown
+audit export.
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+```
+
+Edit `.env.local`: set `WALLET_SHARED_SECRET` to the contents of
+`mcp-server/data/.wallet_secret`, confirm `WALLET_SERVER_URL`/
+`TRUEFORGE_URL` match wherever those are actually running, and set
+**`DASHBOARD_ACCESS_SECRET` to a real value of your own choosing** — the
+dashboard and its API routes refuse to serve anything without it (see
+[Design decisions](#design-decisions)). The wallet server's own shared
+secret never reaches the browser — every `app/api/wallet/*` route runs
+server-side and attaches it there; the frontend's own `.env.local` is a
+*second*, separate secret store from the wallet server's, not a duplicate
+of anything already public.
+
+```bash
+npm run dev
+```
+
+The browser will prompt for credentials the first time you open
+`/dashboard` — any username, `DASHBOARD_ACCESS_SECRET`'s value as the
+password.
+
+Open `http://localhost:3000`. If the dashboard shows "wallet server isn't
+reachable," start the wallet server (step 1) — and if you already had it
+running from before pulling this feature, restart it, since the
+`GET /ui/*` routes the dashboard depends on are new.
+
 ## Testing
 
 Both the wallet server's logic and `scripts/setup_trueforge.py`'s pure
-functions have a pytest suite — 101 tests, none requiring network access or
+functions have a pytest suite — 105 tests, none requiring network access or
 a running TrueForge/wallet instance (prices are mocked; SQLite runs against
 a throwaway per-test file, never the real dev `wallet.db`). Runs in CI
 (`.github/workflows/tests.yml`) on every push and every pull request.
@@ -384,6 +438,13 @@ variance (not exactly zero) produced a meaningless enormous ratio instead
 of the `None` a flat equity curve should report, and (per PR #6's Qodo
 review) a debug endpoint that could report a forced breach without actually
 forcing one.
+
+**The frontend has no automated test suite yet** — `npm run build`
+(production build, catches every syntax/import/type error across all
+routes) plus manual smoke-testing against a live wallet server (every page
+and API route checked for a 200 and real data, not just a clean build) is
+the verification it's had so far. Worth stating plainly rather than
+implying JS coverage that doesn't exist.
 
 ## Debug / demo-only endpoints
 
@@ -426,6 +487,24 @@ Every debug route above is cleared by `POST /debug/reset`.
 - **The wallet MCP server is the only execution path**, and it's the only
   module in `mcp-server/app/` that mutates state — everything else (pricing,
   seed, risk, metrics) only reads or is read from it.
+- **The frontend never sees `WALLET_SHARED_SECRET`.** The wallet's data
+  tools are MCP-only, which a browser can't speak, so `frontend/` gets a
+  small read-only REST facade (`GET /ui/*`) instead — but every
+  `app/api/wallet/*` route handler that calls it runs server-side in
+  Next.js and attaches the secret there (`lib/walletProxy.js`, guarded by
+  the `server-only` package). The browser only ever talks to the
+  frontend's own `/api/*` routes.
+- **The frontend has its own, separate access gate.** Attaching
+  `WALLET_SHARED_SECRET` server-side only protects the *second* hop
+  (Next.js → wallet server) — without a gate of its own, the Next.js app
+  is a fully unauthenticated proxy handing out full wallet read/write
+  access to anyone who can reach it. `middleware.js` gates `/dashboard` and
+  every `/api/wallet/*`/`/api/trueforge/*` route behind HTTP Basic Auth
+  checked against a *different* secret, `DASHBOARD_ACCESS_SECRET`. Basic
+  Auth over a custom login flow: zero UI code, the browser's own prompt and
+  credential cache do the work, and it matches this project's existing
+  "shared secret, not a full auth system" posture instead of inventing a
+  second one.
 - **The sandbox is read-only and advisory by construction**: it gets a
   handful of literal numbers pasted in, has no network egress, and no
   wallet MCP access from within a generated script. It informs the
@@ -585,13 +664,19 @@ and requires a generated shared secret on every request but `/health`.
 - ✅ **Phase 3 — Self-audit, metrics, decision logging**: wallet performance
   metrics, per-trade computed risk snapshots, a real TrueForge sub-agent
   running backtests.
-- ✅ **Refinements (post-Phase 3)**: 101-test pytest suite with CI,
+- ✅ **Refinements (post-Phase 3)**: 105-test pytest suite with CI,
   force-trigger debug endpoints for all four risk triggers, and a lazy
   periodic equity snapshot for a richer P&L/drawdown curve — see
   [Testing](#testing) and [Qodo Code Review Evidence](#qodo-code-review-evidence).
-- 🚧 **Phase 4 — Frontend (plain JSX)**: landing page, dashboard, P&L/
-  allocation charts, decision log, approval queue, risk panel, Quant Desk
-  panel (shows the sandbox script + output), audit export, reset button.
-  In progress.
+- ✅ **Phase 4 — Frontend (plain JS/JSX)**: landing page with a live
+  proposal-to-approval animation; dashboard with portfolio summary, P&L/
+  allocation charts, decision log, risk panel with force-trigger demo
+  buttons, a TrueForge-connectivity-aware approval queue, Quant Desk, and a
+  Markdown audit export (download + clipboard copy). Reset button in the
+  dashboard header. No `.tsx`, no `tsconfig.json`. Honest gap: no
+  automated frontend test suite yet (see [Testing](#testing)); the
+  approval queue and Quant Desk pages link out to TrueForge's own UI/trace
+  rather than guessing at an unverified checkpoint API — see their pages'
+  own copy for why.
 - ⬜ **Phase 5 — Demo, submission polish**: demo video, final Qodo pass,
   submission.
