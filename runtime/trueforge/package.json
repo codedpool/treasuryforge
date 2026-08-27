@@ -1,0 +1,13 @@
+{
+  "name": "treasuryforge-trueforge-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Vendored install of the TrueForge agent harness (local standalone mode). Not TreasuryForge's own source -- see patch-windows-esm-migrations.js for why this exists.",
+  "scripts": {
+    "postinstall": "node ./patch-windows-esm-migrations.js",
+    "start": "node node_modules/@truefoundry/trueforge/dist/main.js"
+  },
+  "dependencies": {
+    "@truefoundry/trueforge": "0.1.4"
+  }
+}
