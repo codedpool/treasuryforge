@@ -15,7 +15,10 @@ Tool surface:
     breaches a limit" -- see risk.py's module docstring), so check_risk_limits
     is what turns the plan's four risk triggers into real computed numbers
     the agent must fetch and cite in `reason` before proposing a trade,
-    rather than TrueForge enforcing them itself.
+    rather than TrueForge enforcing them itself. execute_trade also computes
+    its own check_risk_limits snapshot server-side and stores it with the
+    transaction, regardless of whether the agent called it or what it
+    passed in `reason` -- see execute_trade's docstring below.
 
 Debug-only routes (never on the live decision path -- see README):
   - POST /debug/reset: wipes and reseeds the wallet.
@@ -102,9 +105,23 @@ def execute_trade(
     """Buy or sell a crypto (BTC, ETH) or NSE equity position. The only tool
     that changes wallet state. Provide exactly one of quantity or usd_amount.
     When DRY_RUN is on, the trade is priced and logged but not executed.
-    Equity trades are rejected outright while the NSE is closed."""
+    Equity trades are rejected outright while the NSE is closed.
+
+    Computes and stores its own check_risk_limits snapshot for this exact
+    trade before executing -- not the agent's job to remember to call it
+    first (that's instruction-only, unenforced), and not trusted from the
+    agent even if it did, since a tool argument can't be verified server-side.
+    If the risk snapshot can't be computed (e.g. a quote is down), the trade
+    is refused rather than executed without one -- see risk.py's
+    _project_trade for why an unpriced position can't be silently ignored."""
+    snapshot = risk.check_risk_limits(asset=asset, side=side, quantity=quantity, usd_amount=usd_amount)
     return wallet.execute_trade(
-        asset=asset, side=side, quantity=quantity, usd_amount=usd_amount, reason=reason
+        asset=asset,
+        side=side,
+        quantity=quantity,
+        usd_amount=usd_amount,
+        reason=reason,
+        risk_snapshot=snapshot,
     )
 
 
