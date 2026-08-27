@@ -249,10 +249,22 @@ server (`treasuryforge-wallet`).
 
 ```bash
 cd mcp-server
-python -m venv .venv && .venv/Scripts/activate   # or source .venv/bin/activate
-pip install -r requirements.txt
+python -m venv .venv
 cp .env.example .env   # defaults work as-is; nothing is required to start
-python -m app.server
+```
+
+**Windows:**
+
+```bash
+.venv/Scripts/pip install -r requirements.txt
+.venv/Scripts/python -m app.server
+```
+
+**Linux/macOS:**
+
+```bash
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m app.server
 ```
 
 Runs on `http://127.0.0.1:4001` by default. On first call it auto-seeds the
@@ -314,11 +326,17 @@ running TrueForge on the default port, set `TRUEFORGE_URL` first.
 ### 4. Talk to it
 
 Until this repo's own frontend exists, drive it via TrueForge's own UI or
-its HTTP API directly:
+its HTTP API directly (substitute your own host:port if you didn't run
+TrueForge on its default `8790`):
 
 ```bash
-curl -X POST $TRUEFORGE_URL/api/v1/sessions -d '{"agent":{"name":"treasury-agent"}}'
-curl -X POST $TRUEFORGE_URL/api/v1/sessions/{id}/turns \
+curl -X POST http://localhost:8790/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"agent":{"name":"treasury-agent"}}'
+
+# Take the "id" from that response and use it below.
+curl -X POST http://localhost:8790/api/v1/sessions/{id}/turns \
+  -H "Content-Type: application/json" \
   -d '{"input":[{"type":"user.message","content":"Review the portfolio and propose a trade if warranted."}]}'
 ```
 
