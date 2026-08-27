@@ -46,7 +46,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TRUEFORGE_URL = os.environ.get("TRUEFORGE_URL", "http://localhost:8790").rstrip("/")
+DEFAULT_TRUEFORGE_URL = "http://localhost:8790"
+# .strip() or default, not .get(key, default): python-dotenv sets the env
+# var to "" for a blank `KEY=` line in .env, which isn't the same as the
+# key being absent -- .env.example documents "leave blank for the
+# default", so a literal copy-and-fill-only-the-keys workflow has to
+# actually produce that default, not an empty API base URL (a real Qodo
+# finding).
+TRUEFORGE_URL = (os.environ.get("TRUEFORGE_URL", "").strip() or DEFAULT_TRUEFORGE_URL).rstrip("/")
 API = f"{TRUEFORGE_URL}/api/v1"
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -97,7 +104,8 @@ PRIMARY_MODEL_NAME_OVERRIDE = os.environ.get("PRIMARY_MODEL_NAME", "").strip() o
 MCP_SERVER_NAME = "treasuryforge-wallet"
 # Trailing slash matters: POST /mcp 307-redirects to /mcp/ (Starlette mount
 # behavior), and not every HTTP client follows a 307 redirect on POST.
-MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:4001/mcp/")
+# Same blank-vs-absent fix as TRUEFORGE_URL above.
+MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "").strip() or "http://localhost:4001/mcp/"
 
 
 def _load_wallet_shared_secret() -> str | None:
