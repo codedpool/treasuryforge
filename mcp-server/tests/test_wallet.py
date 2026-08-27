@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
-from app import config, wallet
+from app import config, db, wallet
 
 
 # --- Input validation -------------------------------------------------
@@ -265,3 +267,49 @@ def test_realized_pnl_uses_average_cost_basis(clean_btc_cost_basis):
     assert pnl_series == [pytest.approx(0.0), pytest.approx(-10.0), pytest.approx(45.0)]
     remaining_qty, remaining_cost = cost_basis["BTC"]
     assert remaining_qty == pytest.approx(1.0)  # 2 bought - 1 sold, from a cleared position
+
+
+# --- Periodic equity snapshot ---------------------------------------------
+
+def _backdate_latest_snapshot(seconds_ago: float) -> None:
+    conn = db.get_conn()
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
+    conn.execute(
+        "UPDATE equity_snapshots SET timestamp = ? WHERE id = (SELECT MAX(id) FROM equity_snapshots)",
+        (stale,),
+    )
+    conn.commit()
+
+
+def test_periodic_snapshot_recorded_when_stale(isolated_db, mock_prices):
+    wallet.get_portfolio()  # seeds + day-start rollover -- one snapshot already
+    _backdate_latest_snapshot(wallet.PERIODIC_SNAPSHOT_INTERVAL_SECONDS + 1)
+    before = isolated_count(db)
+
+    wallet.get_portfolio()
+
+    after = isolated_count(db)
+    assert after == before + 1
+    latest_reason = isolated_db.execute(
+        "SELECT reason FROM equity_snapshots ORDER BY id DESC LIMIT 1"
+    ).fetchone()["reason"]
+    assert latest_reason == "periodic"
+
+
+def test_periodic_snapshot_not_recorded_when_recent(isolated_db, mock_prices):
+    wallet.get_portfolio()  # seeds + day-start rollover -- one snapshot already
+    before = isolated_count(db)
+
+    wallet.get_portfolio()  # only a moment later -- well under the interval
+
+    after = isolated_count(db)
+    assert after == before
+
+
+def test_periodic_snapshot_does_not_double_up_with_day_start_snapshot(isolated_db, mock_prices):
+    # First-ever get_portfolio call on a fresh wallet: day-start rollover
+    # fires its own snapshot, and the periodic check runs immediately after
+    # in the same call -- must see that snapshot as "just happened" and
+    # skip, not add a second row.
+    wallet.get_portfolio()
+    assert isolated_count(db) == 1
