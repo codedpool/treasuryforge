@@ -172,6 +172,44 @@ def isolated_count(db_module) -> int:
     return db_module.get_conn().execute("SELECT COUNT(*) FROM equity_snapshots").fetchone()[0]
 
 
+# --- Debug-only state mutation primitives ---------------------------------
+# Used by risk.py's force_* helpers (test_risk.py) to put the wallet in a
+# specific state on demand for a demo.
+
+def test_set_holding_quantity_overwrites_without_touching_cash(seeded_wallet):
+    before_cash = wallet.get_portfolio()["cash_usd"]
+    wallet.set_holding_quantity("BTC", 12.5)
+    after = wallet.get_portfolio()
+    btc = next(p["quantity"] for p in after["positions"] if p["asset"] == "BTC")
+    assert btc == pytest.approx(12.5)
+    assert after["cash_usd"] == pytest.approx(before_cash)
+
+
+def test_set_holding_quantity_creates_a_holding_row_for_a_new_asset(isolated_db):
+    # Queries the holdings table directly, not via get_portfolio -- a
+    # get_portfolio call would trigger _ensure_seeded on this never-seeded
+    # db and overwrite this with the seed's own target quantity.
+    wallet.set_holding_quantity("ETH", 3.0)
+    row = isolated_db.execute("SELECT quantity FROM holdings WHERE asset = 'ETH'").fetchone()
+    assert row["quantity"] == pytest.approx(3.0)
+
+
+def test_record_synthetic_transaction_does_not_touch_holdings(seeded_wallet):
+    before = wallet.get_portfolio()
+    holdings_before = {p["asset"]: p["quantity"] for p in before["positions"]}
+
+    wallet.record_synthetic_transaction("DEMO_LOSS", "sell", 0.01, 50.0, "test")
+
+    log = wallet.get_transaction_log(limit=1)
+    assert log[0]["asset"] == "DEMO_LOSS"
+    assert log[0]["side"] == "sell"
+    assert log[0]["dry_run"] == 0
+
+    after = wallet.get_portfolio()
+    holdings_after = {p["asset"]: p["quantity"] for p in after["positions"]}
+    assert holdings_before == holdings_after
+
+
 # --- Day-start baseline --------------------------------------------------
 
 def test_day_start_established_on_first_read(isolated_db, mock_prices):
