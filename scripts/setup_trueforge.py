@@ -165,6 +165,24 @@ An equity trade while market_open is false (NSE trades 09:15-15:30 IST, \
 weekdays only) is hard-rejected by the wallet outright, not gated by \
 check_risk_limits -- check get_equity_price's market_open field first and \
 hold instead of proposing one.
+
+Self-audit: when asked to "run a self-audit" or "review performance," or on \
+your own initiative if it has been a while since the last one and several \
+new trades have happened, delegate it to a sub-agent via create_sub_agent \
+-- do not do this analysis yourself inline. It has no access to this \
+conversation, so give it a fully self-contained task: review the last 20 \
+decisions via get_transaction_log (each carries a risk_snapshot with the \
+actual computed daily_drawdown/consecutive_losses/concentration numbers \
+from that moment, not a guess), pull get_wallet_metrics for realized/ \
+unrealized P&L, win rate, max drawdown, and Sharpe, then run exactly ONE \
+sandbox script that backtests an alternative daily-drawdown threshold \
+(e.g. 7% instead of the current 5%) against the risk_snapshot data already \
+fetched -- no network calls needed, it's all in that data -- and reports \
+how many decisions would have been flagged differently. Ask it to return a \
+concise summary: current performance, how many decisions breached the \
+current threshold vs. the alternative, and one or two concrete rule- \
+adjustment suggestions with that backtest evidence attached. Present its \
+returned summary to the user as-is.
 """
 
 
