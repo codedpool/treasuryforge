@@ -114,7 +114,7 @@ def record_synthetic_transaction(asset: str, side: str, quantity: float, price_u
         conn.commit()
 
 
-def _roll_day_start_if_needed(current_total_usd: float) -> float:
+def _roll_day_start_if_needed(current_total_usd: float, positions: list[dict]) -> float:
     """Lazily snapshots the portfolio's total value as the "start of day"
     baseline the first time it's checked on a new UTC calendar day, then
     returns whatever the current baseline is. Called from get_portfolio --
@@ -135,12 +135,23 @@ def _roll_day_start_if_needed(current_total_usd: float) -> float:
         # nearly everything else calls (execute_trade, check_risk_limits, a
         # plain portfolio read) -- an unguarded failure here would crash the
         # very first read of every new day, not just this one function.
-        _safe_record_equity_snapshot(current_total_usd, "day_start")
+        _safe_record_equity_snapshot(current_total_usd, "day_start", positions)
         return current_total_usd
     return stored_value if stored_value is not None else current_total_usd
 
 
-def _record_periodic_snapshot_if_due(current_total_usd: float) -> None:
+# Serializes the periodic snapshot's own "is one due" check against its own
+# conditional insert -- without this, two threads calling get_portfolio at
+# nearly the same moment could both read the same stale latest-snapshot row
+# before either has inserted, and both decide a snapshot is due, breaking
+# the "at most every PERIODIC_SNAPSHOT_INTERVAL_SECONDS" guarantee (a real
+# Qodo finding). Deliberately separate from _trade_lock: this guards
+# observability data, not funds, and the live-trade snapshot path already
+# has its own ordering guarantee from being called inside _trade_lock.
+_snapshot_lock = threading.Lock()
+
+
+def _record_periodic_snapshot_if_due(current_total_usd: float, positions: list[dict]) -> None:
     """Opportunistically appends an equity_snapshots row if it's been at
     least PERIODIC_SNAPSHOT_INTERVAL_SECONDS since the last one, checked
     lazily on every get_portfolio call -- same "no real scheduler" pattern
@@ -157,16 +168,17 @@ def _record_periodic_snapshot_if_due(current_total_usd: float) -> None:
     just fired, the most recent row is a few milliseconds old, so this call
     sees elapsed well under the interval and skips -- no double-insert on
     the first read of a new day."""
-    conn = db.get_conn()
-    row = conn.execute(
-        "SELECT timestamp FROM equity_snapshots ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    if row is not None:
-        last = datetime.fromisoformat(row["timestamp"])
-        elapsed = (datetime.now(timezone.utc) - last).total_seconds()
-        if elapsed < PERIODIC_SNAPSHOT_INTERVAL_SECONDS:
-            return
-    _safe_record_equity_snapshot(current_total_usd, "periodic")
+    with _snapshot_lock:
+        conn = db.get_conn()
+        row = conn.execute(
+            "SELECT timestamp FROM equity_snapshots ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            last = datetime.fromisoformat(row["timestamp"])
+            elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+            if elapsed < PERIODIC_SNAPSHOT_INTERVAL_SECONDS:
+                return
+        _safe_record_equity_snapshot(current_total_usd, "periodic", positions)
 
 
 def _price_usd(asset: str) -> dict:
@@ -234,8 +246,8 @@ def get_portfolio() -> dict:
             "market_open": quote["market_open"],
         })
 
-    day_start_value_usd = _roll_day_start_if_needed(total_usd)
-    _record_periodic_snapshot_if_due(total_usd)
+    day_start_value_usd = _roll_day_start_if_needed(total_usd, positions)
+    _record_periodic_snapshot_if_due(total_usd, positions)
 
     return {
         "cash_usd": cash,
@@ -269,13 +281,24 @@ def get_transaction_log(limit: int = 50) -> list[dict]:
     return results
 
 
-def _safe_record_equity_snapshot(total_usd: float, reason: str) -> None:
+def _safe_record_equity_snapshot(total_usd: float, reason: str, positions: list[dict]) -> None:
     """record_equity_snapshot is best-effort observability, not part of the
     trade's own correctness -- a network hiccup fetching prices for the
     snapshot must never surface as a failed execute_trade after the trade
     (or its DRY_RUN log entry) has already committed. A caller that saw a
     failure here and retried the "failed" trade would double-execute it
-    (a real Qodo finding)."""
+    (a real Qodo finding).
+
+    Also refuses to record when any position lacks a live quote:
+    get_portfolio's total_usd silently excludes an unpriced position's
+    value, so recording it as-is would durably plant a fabricated low
+    equity point that outlives the quote outage -- unlike one bad read, a
+    stored snapshot stays in every future max_drawdown_pct/sharpe_ratio
+    calculation forever (a real Qodo finding, most exposed by the periodic
+    snapshot since it runs far more often than a trade or day-start
+    rollover)."""
+    if any(p["price_usd"] is None for p in positions):
+        return
     try:
         record_equity_snapshot(total_usd, reason)
     except Exception:
@@ -364,7 +387,8 @@ def execute_trade(
             (now, asset, side, quantity, price_usd, usd_value, reason, risk_snapshot_json),
         )
         conn.commit()
-        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:dry_run")
+        portfolio = get_portfolio()
+        _safe_record_equity_snapshot(portfolio["total_usd"], f"trade:{asset}:{side}:dry_run", portfolio["positions"])
         return {
             "dry_run": True,
             "executed": False,
@@ -416,7 +440,8 @@ def execute_trade(
         # commit and snapshot first, which would insert equity_snapshots rows
         # out of true chronological order (a real Qodo finding; metrics.py
         # reads this table in insertion order).
-        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:live")
+        portfolio = get_portfolio()
+        _safe_record_equity_snapshot(portfolio["total_usd"], f"trade:{asset}:{side}:live", portfolio["positions"])
 
     return {
         "dry_run": False,

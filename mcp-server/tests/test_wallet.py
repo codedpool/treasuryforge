@@ -313,3 +313,41 @@ def test_periodic_snapshot_does_not_double_up_with_day_start_snapshot(isolated_d
     # skip, not add a second row.
     wallet.get_portfolio()
     assert isolated_count(db) == 1
+
+
+def _flaky_equity_price(symbol: str) -> dict:
+    if symbol == "TCS.NS":
+        raise RuntimeError("simulated quote outage")
+    price_inr = {"RELIANCE.NS": 2_500.0, "INFY.NS": 1_500.0, "HDFCBANK.NS": 1_600.0}[symbol]
+    return {
+        "symbol": symbol,
+        "price_inr": price_inr,
+        "price_usd": price_inr / 83.0,
+        "change_24h_pct": 0.0,
+        "market_open": True,
+        "source": "mock",
+    }
+
+
+def test_safe_record_equity_snapshot_skips_when_any_position_unpriced(isolated_db):
+    positions = [
+        {"asset": "BTC", "price_usd": 80_000.0},
+        {"asset": "TCS.NS", "price_usd": None},
+    ]
+    wallet._safe_record_equity_snapshot(10_000.0, "test", positions)
+    assert isolated_count(db) == 0
+
+
+def test_periodic_snapshot_skipped_when_a_position_is_unpriced(isolated_db, mock_prices, monkeypatch):
+    # A stored snapshot outlives the outage that produced it -- total_usd
+    # silently excludes an unpriced position's value (see get_portfolio), so
+    # recording it as-is would permanently understate the equity curve even
+    # after the quote source recovers.
+    wallet.get_portfolio()  # seeds + day-start rollover -- one snapshot already
+    _backdate_latest_snapshot(wallet.PERIODIC_SNAPSHOT_INTERVAL_SECONDS + 1)
+    before = isolated_count(db)
+
+    monkeypatch.setattr(wallet, "get_equity_price", _flaky_equity_price)
+    wallet.get_portfolio()  # due for a periodic snapshot, but TCS.NS is unpriced
+
+    assert isolated_count(db) == before
