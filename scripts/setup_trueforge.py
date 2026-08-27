@@ -351,8 +351,12 @@ def _merge_agent_manifest(existing_manifest: dict, model_name: str) -> dict:
     manifest["instructions"] = AGENT_INSTRUCTIONS
 
     config = dict(manifest.get("config") or {})
-    config["sandbox"] = {"enabled": True}
-    config["dynamic_sub_agents"] = {"enabled": True}
+    # Same shallow-merge-not-replace rule one level deeper: an existing
+    # agent's config.sandbox can carry other keys (file_downloads, seen on
+    # a real registered agent) that a flat {"enabled": True} would discard.
+    # Only set the one field this script actually owns.
+    config["sandbox"] = {**(config.get("sandbox") or {}), "enabled": True}
+    config["dynamic_sub_agents"] = {**(config.get("dynamic_sub_agents") or {}), "enabled": True}
     manifest["config"] = config
 
     mcp_servers = [
