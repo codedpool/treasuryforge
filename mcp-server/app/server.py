@@ -131,6 +131,11 @@ def execute_trade(
         usd_amount=usd_amount,
         reason=reason,
         risk_snapshot=snapshot,
+        # Reuse the exact price check_risk_limits already fetched, rather than
+        # letting execute_trade fetch its own -- otherwise a price move
+        # between the two calls could make the stored risk_snapshot and the
+        # executed trade disagree about what price the decision was based on.
+        price_usd=snapshot["price_usd"],
     )
 
 

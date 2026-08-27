@@ -184,6 +184,19 @@ def get_transaction_log(limit: int = 50) -> list[dict]:
     return results
 
 
+def _safe_record_equity_snapshot(total_usd: float, reason: str) -> None:
+    """record_equity_snapshot is best-effort observability, not part of the
+    trade's own correctness -- a network hiccup fetching prices for the
+    snapshot must never surface as a failed execute_trade after the trade
+    (or its DRY_RUN log entry) has already committed. A caller that saw a
+    failure here and retried the "failed" trade would double-execute it
+    (a real Qodo finding)."""
+    try:
+        record_equity_snapshot(total_usd, reason)
+    except Exception:
+        pass
+
+
 def execute_trade(
     asset: str,
     side: str,
@@ -191,6 +204,7 @@ def execute_trade(
     usd_amount: float | None = None,
     reason: str = "",
     risk_snapshot: dict | None = None,
+    price_usd: float | None = None,
 ) -> dict:
     """The only tool that changes wallet state.
 
@@ -204,6 +218,13 @@ def execute_trade(
     subagent's backtests. Not computed in here to avoid wallet.py importing
     risk.py (risk.py already imports wallet.py -- this module stays a leaf
     that only pricing/seed depend on, per its own module docstring).
+
+    price_usd, if given, should be that same check_risk_limits call's price
+    -- reused here instead of fetching a second, possibly different quote,
+    so the stored risk_snapshot and the executed trade always agree on the
+    price they describe (a real Qodo finding: two independent fetches could
+    straddle a price move and disagree). Falls back to a fresh fetch if not
+    given (e.g. a direct call with no risk_snapshot at all).
     """
     _ensure_seeded()
 
@@ -226,8 +247,9 @@ def execute_trade(
             "hold or monitor the existing position instead."
         )
 
-    quote = _price_usd(asset)
-    price_usd = float(quote["price_usd"])
+    if price_usd is None:
+        quote = _price_usd(asset)
+        price_usd = float(quote["price_usd"])
 
     if quantity is None:
         assert usd_amount is not None
@@ -247,7 +269,7 @@ def execute_trade(
             (now, asset, side, quantity, price_usd, usd_value, reason, risk_snapshot_json),
         )
         conn.commit()
-        record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:dry_run")
+        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:dry_run")
         return {
             "dry_run": True,
             "executed": False,
@@ -294,8 +316,12 @@ def execute_trade(
             (now, asset, side, quantity, price_usd, usd_value, reason, risk_snapshot_json),
         )
         conn.commit()
-
-    record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:live")
+        # Recorded inside the same lock that serialized this trade's mutation
+        # -- not after releasing it -- so a second concurrent trade can't
+        # commit and snapshot first, which would insert equity_snapshots rows
+        # out of true chronological order (a real Qodo finding; metrics.py
+        # reads this table in insertion order).
+        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:live")
 
     return {
         "dry_run": False,

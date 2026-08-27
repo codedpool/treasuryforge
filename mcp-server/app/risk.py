@@ -157,6 +157,7 @@ def check_risk_limits(
         "asset": projection["asset"],
         "side": projection["side"],
         "quantity": projection["quantity"],
+        "price_usd": projection["price_usd"],
         "projected_usd_value": round(projection["usd_value"], 2),
         "can_afford": projection["can_afford"],
         "triggers": triggers,
