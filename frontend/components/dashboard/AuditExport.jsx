@@ -6,15 +6,25 @@ import { buildAuditMarkdown } from "@/lib/auditExport";
 import DataState from "@/components/dashboard/DataState";
 import Panel from "@/components/Panel";
 
+// Generous headroom above any realistic hackathon-demo transaction count,
+// while still bounded -- buildAuditMarkdown adds an explicit truncation
+// notice if the wallet somehow has more than this, rather than silently
+// presenting a partial log as the complete record (a real Qodo finding).
+const AUDIT_TRANSACTION_LIMIT = 5000;
+
 export default function AuditExport() {
   const portfolio = usePortfolio();
   const metrics = useMetrics();
   const risk = useRiskSummary();
-  const transactions = useTransactions(200);
+  const transactions = useTransactions(AUDIT_TRANSACTION_LIMIT);
   const [copied, setCopied] = useState(false);
 
   const loading = portfolio.isLoading || metrics.isLoading || risk.isLoading || transactions.isLoading;
-  const error = portfolio.error;
+  // All four requests feed the export -- an audit document that silently
+  // renders a failed request's data as "not available" (indistinguishable
+  // from genuinely empty) is worse than not exporting at all (a real Qodo
+  // finding: only portfolio.error was checked before).
+  const error = portfolio.error || metrics.error || risk.error || transactions.error;
 
   return (
     <DataState isLoading={loading} error={error}>
@@ -25,6 +35,7 @@ export default function AuditExport() {
             metrics: metrics.data,
             risk: risk.data,
             transactions: transactions.data,
+            transactionsLimit: AUDIT_TRANSACTION_LIMIT,
           })}
           copied={copied}
           setCopied={setCopied}

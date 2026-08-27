@@ -1,6 +1,6 @@
 import { formatUsd, formatPct, formatQty, formatTimestamp } from "@/lib/format";
 
-export function buildAuditMarkdown({ portfolio, metrics, risk, transactions }) {
+export function buildAuditMarkdown({ portfolio, metrics, risk, transactions, transactionsLimit }) {
   const lines = [];
   const now = new Date().toISOString();
 
@@ -69,6 +69,13 @@ export function buildAuditMarkdown({ portfolio, metrics, risk, transactions }) {
   lines.push("## Decision log");
   lines.push("");
   if (transactions && transactions.length > 0) {
+    if (transactionsLimit && transactions.length >= transactionsLimit) {
+      lines.push(
+        `_Showing the most recent ${transactions.length} transactions (the requested limit). Older ` +
+          "transactions may exist and are not included in this export._"
+      );
+      lines.push("");
+    }
     lines.push("| Time | Side | Asset | Quantity | Price | Value | Mode | Reason |");
     lines.push("|---|---|---|---|---|---|---|---|");
     for (const t of transactions) {
