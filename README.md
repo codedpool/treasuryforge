@@ -25,6 +25,7 @@ a custom app with an LLM call bolted on.
 - [The self-audit sub-agent](#the-self-audit-sub-agent)
 - [MCP tool surface](#mcp-tool-surface)
 - [How to run it](#how-to-run-it)
+- [Testing](#testing)
 - [Debug / demo-only endpoints](#debug--demo-only-endpoints)
 - [Design decisions](#design-decisions)
 - [Known limitations](#known-limitations)
@@ -346,6 +347,30 @@ curl -X POST http://localhost:8790/api/v1/sessions/{id}/turns \
   -H "Content-Type: application/json" \
   -d '{"input":[{"type":"user.message","content":"Review the portfolio and propose a trade if warranted."}]}'
 ```
+
+## Testing
+
+Both the wallet server's logic and `scripts/setup_trueforge.py`'s pure
+functions have a pytest suite — 82 tests, none requiring network access or
+a running TrueForge/wallet instance (prices are mocked; SQLite runs against
+a throwaway per-test file, never the real dev `wallet.db`). Runs in CI
+(`.github/workflows/tests.yml`) on every push and PR.
+
+```bash
+cd mcp-server && pip install -r requirements-dev.txt && pytest
+cd scripts && pip install -r requirements-dev.txt && pytest
+```
+
+Covers: `execute_trade`'s full validation surface and DRY_RUN/live
+behavior, the average-cost-basis P&L accounting (including DRY_RUN
+exclusion), all four risk triggers individually, `max_drawdown_pct`/
+`sharpe_ratio` against known synthetic curves, the day-start baseline
+rollover, schema migration idempotency, and the manifest-merge logic that
+updates an existing agent without erasing its customizations. Several of
+these tests found real bugs while being written — not just confirmed
+existing behavior — including a Sharpe-ratio edge case where near-zero
+floating-point variance (not exactly zero) produced a meaningless
+enormous ratio instead of the `None` a flat equity curve should report.
 
 ## Debug / demo-only endpoints
 
