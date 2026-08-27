@@ -211,8 +211,16 @@ def _roll_day_start_if_needed(current_total_usd: float, positions: list[dict]) -
     still no true midnight-UTC snapshot -- this is a paper wallet with no
     scheduler -- so a drop before the very first read of the day is still
     invisible; this only narrows that window, doesn't close it."""
-    today = datetime.now(timezone.utc).date().isoformat()
     with _day_start_lock:
+        # today computed *inside* the lock, not before it: a thread that
+        # captured today, then got paused waiting for the lock long enough
+        # to cross an actual UTC midnight, would otherwise still be holding
+        # yesterday's date once it finally proceeds -- overwriting a
+        # baseline another thread had already correctly rolled for the new
+        # day with a stale one, and recording a second bogus "day_start"
+        # snapshot in the process (a real Qodo finding on the first cut of
+        # this lock).
+        today = datetime.now(timezone.utc).date().isoformat()
         stored_date, stored_value = read_day_start()
         if stored_date != today:
             write_day_start(today, current_total_usd)
