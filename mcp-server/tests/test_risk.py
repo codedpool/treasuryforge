@@ -6,6 +6,25 @@ from app import risk, wallet
 # shared with test_wallet.py.
 
 
+# --- portfolio_risk_summary -------------------------------------------
+# The trade-independent subset of check_risk_limits' triggers, used by the
+# dashboard's risk panel (no specific proposed trade to check against).
+
+def test_portfolio_risk_summary_matches_check_risk_limits(seeded_wallet):
+    summary = risk.portfolio_risk_summary()
+    full = risk.check_risk_limits("BTC", "buy", usd_amount=50)
+    assert summary["daily_drawdown"] == full["triggers"]["daily_drawdown"]
+    assert summary["consecutive_losses"] == full["triggers"]["consecutive_losses"]
+    assert summary["concentration_limit_pct"] == risk.MAX_SINGLE_ASSET_PCT
+    assert summary["sell_all_threshold_pct"] == risk.SELL_ALL_THRESHOLD_PCT
+
+
+def test_portfolio_risk_summary_reflects_a_forced_drawdown_breach(seeded_wallet):
+    risk.force_daily_drawdown_breach()
+    summary = risk.portfolio_risk_summary()
+    assert summary["daily_drawdown"]["breached"] is True
+
+
 # --- Individual triggers --------------------------------------------------
 
 def test_no_breach_for_a_small_ordinary_trade(seeded_wallet):
