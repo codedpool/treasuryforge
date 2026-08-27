@@ -181,6 +181,23 @@ def record_synthetic_transactions(rows: list[tuple[str, str, float, float, str]]
         conn.commit()
 
 
+# Serializes _roll_day_start_if_needed's own read-check-write-snapshot
+# sequence. Deliberately a separate lock from _trade_lock, not a reuse of
+# it: get_portfolio (which calls this) is itself called from inside
+# execute_trade's live branch while already holding _trade_lock (see
+# below), and _trade_lock is a plain, non-reentrant threading.Lock --
+# reusing it here would deadlock that path against itself. Needed because
+# the /ui/* routes now run as plain `def` handlers, which FastAPI executes
+# concurrently in Starlette's threadpool rather than one at a time on a
+# single event loop -- so on the first request(s) of a new UTC day, several
+# real OS threads (portfolio, metrics, risk-summary, and equity-curve all
+# call get_portfolio internally) could each see the stale stored_date
+# before any of them writes, each computing its own (possibly different)
+# baseline and each recording a duplicate "day_start" snapshot (a real
+# Qodo finding).
+_day_start_lock = threading.Lock()
+
+
 def _roll_day_start_if_needed(current_total_usd: float, positions: list[dict]) -> float:
     """Lazily snapshots the portfolio's total value as the "start of day"
     baseline the first time it's checked on a new UTC calendar day, then
@@ -195,16 +212,17 @@ def _roll_day_start_if_needed(current_total_usd: float, positions: list[dict]) -
     scheduler -- so a drop before the very first read of the day is still
     invisible; this only narrows that window, doesn't close it."""
     today = datetime.now(timezone.utc).date().isoformat()
-    stored_date, stored_value = read_day_start()
-    if stored_date != today:
-        write_day_start(today, current_total_usd)
-        # _safe_, not a raw call: this fires from inside get_portfolio, which
-        # nearly everything else calls (execute_trade, check_risk_limits, a
-        # plain portfolio read) -- an unguarded failure here would crash the
-        # very first read of every new day, not just this one function.
-        _safe_record_equity_snapshot(current_total_usd, "day_start", positions)
-        return current_total_usd
-    return stored_value if stored_value is not None else current_total_usd
+    with _day_start_lock:
+        stored_date, stored_value = read_day_start()
+        if stored_date != today:
+            write_day_start(today, current_total_usd)
+            # _safe_, not a raw call: this fires from inside get_portfolio, which
+            # nearly everything else calls (execute_trade, check_risk_limits, a
+            # plain portfolio read) -- an unguarded failure here would crash the
+            # very first read of every new day, not just this one function.
+            _safe_record_equity_snapshot(current_total_usd, "day_start", positions)
+            return current_total_usd
+        return stored_value if stored_value is not None else current_total_usd
 
 
 # Serializes the periodic snapshot's own "is one due" check against its own
