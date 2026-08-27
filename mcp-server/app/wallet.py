@@ -49,6 +49,22 @@ def write_day_start(date_str: str, value_usd: float) -> None:
     db.set_meta("day_start", json.dumps({"date": date_str, "value_usd": value_usd}))
 
 
+def record_equity_snapshot(total_usd: float, reason: str) -> None:
+    """Appends one point to the equity curve metrics.max_drawdown/sharpe_ratio
+    read from. Recorded on every execute_trade call (DRY_RUN or live -- both
+    reflect real market movement the agent observed, which is what a
+    drawdown curve should track) and on each daily-baseline rollover, so the
+    curve has real granularity within a single demo session instead of at
+    most one point per day."""
+    conn = db.get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO equity_snapshots (timestamp, total_usd, reason) VALUES (?, ?, ?)",
+        (now, total_usd, reason),
+    )
+    conn.commit()
+
+
 def _roll_day_start_if_needed(current_total_usd: float) -> float:
     """Lazily snapshots the portfolio's total value as the "start of day"
     baseline the first time it's checked on a new UTC calendar day, then
@@ -66,6 +82,7 @@ def _roll_day_start_if_needed(current_total_usd: float) -> float:
     stored_date, stored_value = read_day_start()
     if stored_date != today:
         write_day_start(today, current_total_usd)
+        record_equity_snapshot(current_total_usd, "day_start")
         return current_total_usd
     return stored_value if stored_value is not None else current_total_usd
 
@@ -145,14 +162,39 @@ def get_portfolio() -> dict:
 
 
 def get_transaction_log(limit: int = 50) -> list[dict]:
+    """Most recent transactions, newest first. risk_snapshot is the
+    check_risk_limits result computed at trade time (None for seed rows and
+    for any trade made before this field existed), parsed back from JSON so
+    a caller (or the self-audit subagent's sandbox backtests) can read the
+    actual daily_drawdown/concentration/etc. numbers that were true at each
+    decision, not just the free-text reason."""
     _ensure_seeded()
     conn = db.get_conn()
     rows = conn.execute(
-        "SELECT id, timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run "
+        "SELECT id, timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run, risk_snapshot "
         "FROM transactions ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    results = []
+    for r in rows:
+        entry = dict(r)
+        raw = entry.pop("risk_snapshot")
+        entry["risk_snapshot"] = json.loads(raw) if raw else None
+        results.append(entry)
+    return results
+
+
+def _safe_record_equity_snapshot(total_usd: float, reason: str) -> None:
+    """record_equity_snapshot is best-effort observability, not part of the
+    trade's own correctness -- a network hiccup fetching prices for the
+    snapshot must never surface as a failed execute_trade after the trade
+    (or its DRY_RUN log entry) has already committed. A caller that saw a
+    failure here and retried the "failed" trade would double-execute it
+    (a real Qodo finding)."""
+    try:
+        record_equity_snapshot(total_usd, reason)
+    except Exception:
+        pass
 
 
 def execute_trade(
@@ -161,12 +203,28 @@ def execute_trade(
     quantity: float | None = None,
     usd_amount: float | None = None,
     reason: str = "",
+    risk_snapshot: dict | None = None,
+    price_usd: float | None = None,
 ) -> dict:
     """The only tool that changes wallet state.
 
     Exactly one of quantity / usd_amount must be given. When DRY_RUN is on
     (the default), the trade is priced and logged with dry_run=1 but cash
     and holdings are left untouched.
+
+    risk_snapshot is a check_risk_limits result computed by the caller (see
+    server.py's execute_trade tool wrapper) for the *same* asset/side/
+    quantity/usd_amount, stored alongside the transaction for the self-audit
+    subagent's backtests. Not computed in here to avoid wallet.py importing
+    risk.py (risk.py already imports wallet.py -- this module stays a leaf
+    that only pricing/seed depend on, per its own module docstring).
+
+    price_usd, if given, should be that same check_risk_limits call's price
+    -- reused here instead of fetching a second, possibly different quote,
+    so the stored risk_snapshot and the executed trade always agree on the
+    price they describe (a real Qodo finding: two independent fetches could
+    straddle a price move and disagree). Falls back to a fresh fetch if not
+    given (e.g. a direct call with no risk_snapshot at all).
     """
     _ensure_seeded()
 
@@ -189,8 +247,19 @@ def execute_trade(
             "hold or monitor the existing position instead."
         )
 
-    quote = _price_usd(asset)
-    price_usd = float(quote["price_usd"])
+    if price_usd is None:
+        quote = _price_usd(asset)
+        price_usd = float(quote["price_usd"])
+    else:
+        # A caller-supplied price (server.py passes through check_risk_limits'
+        # own quote) skipped the amount validation above entirely -- it's a
+        # separate value. Without this, a bad direct call (price_usd=0, NaN,
+        # negative) would divide-by-zero or persist nonsensical transaction/
+        # holding values, since this is the wallet's sole state-mutating
+        # function and a caller isn't required to go through server.py.
+        price_usd = float(price_usd)
+        if not math.isfinite(price_usd) or price_usd <= 0:
+            raise ValueError(f"price_usd must be a finite positive number, got {price_usd}")
 
     if quantity is None:
         assert usd_amount is not None
@@ -200,14 +269,17 @@ def execute_trade(
 
     conn = db.get_conn()
     now = datetime.now(timezone.utc).isoformat()
+    risk_snapshot_json = json.dumps(risk_snapshot) if risk_snapshot is not None else None
 
     if config.DRY_RUN:
         conn.execute(
-            "INSERT INTO transactions (timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
-            (now, asset, side, quantity, price_usd, usd_value, reason),
+            "INSERT INTO transactions "
+            "(timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run, risk_snapshot) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            (now, asset, side, quantity, price_usd, usd_value, reason, risk_snapshot_json),
         )
         conn.commit()
+        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:dry_run")
         return {
             "dry_run": True,
             "executed": False,
@@ -248,11 +320,18 @@ def execute_trade(
             (asset, new_holding),
         )
         conn.execute(
-            "INSERT INTO transactions (timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
-            (now, asset, side, quantity, price_usd, usd_value, reason),
+            "INSERT INTO transactions "
+            "(timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run, risk_snapshot) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (now, asset, side, quantity, price_usd, usd_value, reason, risk_snapshot_json),
         )
         conn.commit()
+        # Recorded inside the same lock that serialized this trade's mutation
+        # -- not after releasing it -- so a second concurrent trade can't
+        # commit and snapshot first, which would insert equity_snapshots rows
+        # out of true chronological order (a real Qodo finding; metrics.py
+        # reads this table in insertion order).
+        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:live")
 
     return {
         "dry_run": False,
@@ -272,3 +351,43 @@ def reset_wallet() -> dict:
     with _trade_lock:
         seed.reset_and_reseed()
     return get_portfolio()
+
+
+def realized_pnl_and_cost_basis() -> tuple[list[float], dict[str, tuple[float, float]]]:
+    """Walks the full *executed* (non-dry-run) transaction history in
+    order, replaying running-average-cost-basis accounting per asset.
+    Shared by risk.py (consecutive-loss streak) and metrics.py (realized +
+    unrealized P&L) so both use the exact same accounting instead of two
+    implementations drifting apart.
+
+    Returns (realized P&L per sell, oldest first; final {asset:
+    (remaining_qty, remaining_cost_basis_usd)} for every asset ever
+    bought/seeded -- used to value open positions for unrealized P&L).
+
+    Seed rows count toward cost basis (they record a real acquisition
+    price) but aren't sales. DRY_RUN rows are excluded entirely -- they
+    never touched holdings (see execute_trade), so counting them would let
+    simulated trades fabricate realized losses/gains and corrupt the cost
+    basis used for real sells, under the default DRY_RUN=true config."""
+    conn = db.get_conn()
+    rows = conn.execute(
+        "SELECT asset, side, quantity, price_usd FROM transactions "
+        "WHERE side IN ('buy', 'sell', 'seed') AND asset != 'CASH' AND dry_run = 0 "
+        "ORDER BY id ASC"
+    ).fetchall()
+
+    cost_basis: dict[str, tuple[float, float]] = {}  # asset -> (total_qty, total_cost)
+    pnl_series: list[float] = []
+
+    for r in rows:
+        asset, side, qty, price = r["asset"], r["side"], r["quantity"], r["price_usd"]
+        tot_qty, tot_cost = cost_basis.get(asset, (0.0, 0.0))
+        if side in ("buy", "seed"):
+            cost_basis[asset] = (tot_qty + qty, tot_cost + qty * price)
+        else:  # sell
+            avg_price = tot_cost / tot_qty if tot_qty > 1e-12 else price
+            pnl_series.append((price - avg_price) * qty)
+            new_qty = max(tot_qty - qty, 0.0)
+            cost_basis[asset] = (new_qty, avg_price * new_qty)
+
+    return pnl_series, cost_basis

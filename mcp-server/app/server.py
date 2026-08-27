@@ -7,7 +7,7 @@ scripts/setup_trueforge.py in the repo root for how this gets registered.
 
 Tool surface:
   - get_portfolio, get_transaction_log, get_crypto_price, get_equity_price,
-    check_risk_limits: read-only.
+    check_risk_limits, get_wallet_metrics: read-only.
   - execute_trade: the only tool that writes wallet state. Register it with
     require_approval_for_tools on the TrueForge side so every trade pauses
     for a human checkpoint -- see setup_trueforge.py. TrueForge's checkpoint
@@ -15,7 +15,10 @@ Tool surface:
     breaches a limit" -- see risk.py's module docstring), so check_risk_limits
     is what turns the plan's four risk triggers into real computed numbers
     the agent must fetch and cite in `reason` before proposing a trade,
-    rather than TrueForge enforcing them itself.
+    rather than TrueForge enforcing them itself. execute_trade also computes
+    its own check_risk_limits snapshot server-side and stores it with the
+    transaction, regardless of whether the agent called it or what it
+    passed in `reason` -- see execute_trade's docstring below.
 
 Debug-only routes (never on the live decision path -- see README):
   - POST /debug/reset: wipes and reseeds the wallet.
@@ -38,7 +41,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 
-from . import config, risk, wallet
+from . import config, metrics, risk, wallet
 from .pricing_crypto import get_crypto_price as _get_crypto_price
 from .pricing_equity import get_equity_price as _get_equity_price
 
@@ -92,6 +95,15 @@ def check_risk_limits(
 
 
 @mcp.tool
+def get_wallet_metrics() -> dict:
+    """Realized + unrealized P&L, win rate, max drawdown, and an
+    unannualized Sharpe ratio, computed from actual transaction and equity
+    history -- not your own estimate. Use this (not a guess) when reporting
+    performance, e.g. in a self-audit summary."""
+    return metrics.get_wallet_metrics()
+
+
+@mcp.tool
 def execute_trade(
     asset: str,
     side: str,
@@ -102,9 +114,28 @@ def execute_trade(
     """Buy or sell a crypto (BTC, ETH) or NSE equity position. The only tool
     that changes wallet state. Provide exactly one of quantity or usd_amount.
     When DRY_RUN is on, the trade is priced and logged but not executed.
-    Equity trades are rejected outright while the NSE is closed."""
+    Equity trades are rejected outright while the NSE is closed.
+
+    Computes and stores its own check_risk_limits snapshot for this exact
+    trade before executing -- not the agent's job to remember to call it
+    first (that's instruction-only, unenforced), and not trusted from the
+    agent even if it did, since a tool argument can't be verified server-side.
+    If the risk snapshot can't be computed (e.g. a quote is down), the trade
+    is refused rather than executed without one -- see risk.py's
+    _project_trade for why an unpriced position can't be silently ignored."""
+    snapshot = risk.check_risk_limits(asset=asset, side=side, quantity=quantity, usd_amount=usd_amount)
     return wallet.execute_trade(
-        asset=asset, side=side, quantity=quantity, usd_amount=usd_amount, reason=reason
+        asset=asset,
+        side=side,
+        quantity=quantity,
+        usd_amount=usd_amount,
+        reason=reason,
+        risk_snapshot=snapshot,
+        # Reuse the exact price check_risk_limits already fetched, rather than
+        # letting execute_trade fetch its own -- otherwise a price move
+        # between the two calls could make the stored risk_snapshot and the
+        # executed trade disagree about what price the decision was based on.
+        price_usd=snapshot["price_usd"],
     )
 
 
