@@ -82,7 +82,11 @@ def _roll_day_start_if_needed(current_total_usd: float) -> float:
     stored_date, stored_value = read_day_start()
     if stored_date != today:
         write_day_start(today, current_total_usd)
-        record_equity_snapshot(current_total_usd, "day_start")
+        # _safe_, not a raw call: this fires from inside get_portfolio, which
+        # nearly everything else calls (execute_trade, check_risk_limits, a
+        # plain portfolio read) -- an unguarded failure here would crash the
+        # very first read of every new day, not just this one function.
+        _safe_record_equity_snapshot(current_total_usd, "day_start")
         return current_total_usd
     return stored_value if stored_value is not None else current_total_usd
 
