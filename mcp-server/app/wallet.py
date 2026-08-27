@@ -14,6 +14,11 @@ from .pricing_equity import NSE_TICKERS, get_equity_price, market_open
 CRYPTO_ASSETS = ["BTC", "ETH"]
 TRADABLE_ASSETS = CRYPTO_ASSETS + NSE_TICKERS
 
+# How often get_portfolio may opportunistically top up the equity curve with
+# a "periodic" snapshot, on top of the existing trade/day-start events -- see
+# _record_periodic_snapshot_if_due.
+PERIODIC_SNAPSHOT_INTERVAL_SECONDS = 5 * 60
+
 # Serializes every operation that mutates wallet state: trades, the first
 # seed, and reset/reseed. Each thread has its own sqlite connection (see
 # db.py), so without this, two overlapping calls could read the same
@@ -135,6 +140,35 @@ def _roll_day_start_if_needed(current_total_usd: float) -> float:
     return stored_value if stored_value is not None else current_total_usd
 
 
+def _record_periodic_snapshot_if_due(current_total_usd: float) -> None:
+    """Opportunistically appends an equity_snapshots row if it's been at
+    least PERIODIC_SNAPSHOT_INTERVAL_SECONDS since the last one, checked
+    lazily on every get_portfolio call -- same "no real scheduler" pattern
+    as _roll_day_start_if_needed, just for a shorter interval. Without this,
+    the equity curve only gets a point when a trade happens or the day
+    rolls over, so a portfolio that moves purely from price drift between
+    trades (or isn't traded for a while) leaves a gap in the drawdown/Sharpe
+    curve as wide as that whole idle stretch. Piggybacks on whatever already
+    calls get_portfolio -- an agent turn, a dashboard poll, a debug call --
+    instead of a background thread or cron job, which this paper wallet has
+    neither the need nor the process model for.
+
+    Naturally self-throttling against the day-start snapshot: if that one
+    just fired, the most recent row is a few milliseconds old, so this call
+    sees elapsed well under the interval and skips -- no double-insert on
+    the first read of a new day."""
+    conn = db.get_conn()
+    row = conn.execute(
+        "SELECT timestamp FROM equity_snapshots ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if row is not None:
+        last = datetime.fromisoformat(row["timestamp"])
+        elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+        if elapsed < PERIODIC_SNAPSHOT_INTERVAL_SECONDS:
+            return
+    _safe_record_equity_snapshot(current_total_usd, "periodic")
+
+
 def _price_usd(asset: str) -> dict:
     if asset in CRYPTO_ASSETS:
         return get_crypto_price(asset)
@@ -200,11 +234,14 @@ def get_portfolio() -> dict:
             "market_open": quote["market_open"],
         })
 
+    day_start_value_usd = _roll_day_start_if_needed(total_usd)
+    _record_periodic_snapshot_if_due(total_usd)
+
     return {
         "cash_usd": cash,
         "positions": positions,
         "total_usd": total_usd,
-        "day_start_value_usd": _roll_day_start_if_needed(total_usd),
+        "day_start_value_usd": day_start_value_usd,
         "dry_run": config.DRY_RUN,
     }
 
