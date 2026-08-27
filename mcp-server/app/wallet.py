@@ -14,6 +14,11 @@ from .pricing_equity import NSE_TICKERS, get_equity_price, market_open
 CRYPTO_ASSETS = ["BTC", "ETH"]
 TRADABLE_ASSETS = CRYPTO_ASSETS + NSE_TICKERS
 
+# How often get_portfolio may opportunistically top up the equity curve with
+# a "periodic" snapshot, on top of the existing trade/day-start events -- see
+# _record_periodic_snapshot_if_due.
+PERIODIC_SNAPSHOT_INTERVAL_SECONDS = 5 * 60
+
 # Serializes every operation that mutates wallet state: trades, the first
 # seed, and reset/reseed. Each thread has its own sqlite connection (see
 # db.py), so without this, two overlapping calls could read the same
@@ -65,7 +70,118 @@ def record_equity_snapshot(total_usd: float, reason: str) -> None:
     conn.commit()
 
 
-def _roll_day_start_if_needed(current_total_usd: float) -> float:
+def set_holding_quantity(asset: str, quantity: float) -> None:
+    """Directly overwrites a holding's quantity, bypassing execute_trade's
+    cash/validation/lock-scoped accounting entirely -- cash is left
+    untouched. Debug/demo only: used by risk.py's force_sell_all_breach to
+    put a known, specific quantity of a real asset in place on demand, the
+    same way force_daily_drawdown_breach overwrites the day_start baseline
+    directly rather than trading toward it. Never called from the agent's
+    own decision loop or execute_trade. For overwriting a holding based on a
+    *computed* target (e.g. a target concentration percentage), use
+    set_concentrated_holding instead -- it re-reads current state under the
+    same lock acquisition it writes under, which a separate read-then-write
+    against this function can't guarantee."""
+    asset = asset.upper()
+    with _trade_lock:
+        conn = db.get_conn()
+        conn.execute(
+            "INSERT INTO holdings (asset, quantity) VALUES (?, ?) "
+            "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
+            (asset, quantity),
+        )
+        conn.commit()
+
+
+def set_concentrated_holding(asset: str, target_pct: float) -> dict:
+    """Debug/demo only: overwrites `asset`'s holding so its USD value is
+    exactly target_pct% of the resulting portfolio total. Used by risk.py's
+    force_concentration_breach.
+
+    Fetches live prices via get_portfolio (an unlocked read -- price
+    staleness of a few milliseconds isn't a correctness concern here) but
+    then re-reads raw cash/holdings and writes the new quantity inside a
+    single _trade_lock acquisition, rather than computing from that earlier
+    get_portfolio snapshot and writing separately (a real Qodo finding: a
+    concurrent live trade or reset landing in between would make the write
+    overwrite a holding state it never actually saw, silently discarding
+    that other change). Refuses to proceed if *any* held position lacks a
+    live quote, not just `asset` -- otherwise the promised follow-up
+    check_risk_limits call would itself refuse to run at all, since it
+    requires every position to be priced (another real Qodo finding)."""
+    asset = asset.upper()
+    if asset not in TRADABLE_ASSETS:
+        raise ValueError(f"Unknown tradable asset: {asset}. Supported: {TRADABLE_ASSETS}")
+    if not math.isfinite(target_pct) or not (0 < target_pct < 100):
+        raise ValueError(f"target_pct must be a finite number strictly between 0 and 100, got {target_pct}")
+
+    portfolio = get_portfolio()
+    price_by_asset = {p["asset"]: p["price_usd"] for p in portfolio["positions"]}
+    unpriced = [a for a, price in price_by_asset.items() if price is None]
+    if unpriced:
+        raise ValueError(f"Cannot force a concentration breach: no live quote for {unpriced} right now.")
+    price_usd = price_by_asset[asset]
+
+    with _trade_lock:
+        conn = db.get_conn()
+        rows = conn.execute("SELECT asset, quantity FROM holdings").fetchall()
+        holdings_by_asset = {r["asset"]: r["quantity"] for r in rows}
+        cash = holdings_by_asset.pop("CASH", 0.0)
+        total_usd = cash + sum(
+            holdings_by_asset.get(a, 0.0) * price_by_asset[a] for a in TRADABLE_ASSETS
+        )
+        current_asset_usd = holdings_by_asset.get(asset, 0.0) * price_usd
+        other_usd_value = total_usd - current_asset_usd
+        target_asset_usd = (target_pct / 100) * other_usd_value / (1 - target_pct / 100)
+        target_qty = target_asset_usd / price_usd
+
+        conn.execute(
+            "INSERT INTO holdings (asset, quantity) VALUES (?, ?) "
+            "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
+            (asset, target_qty),
+        )
+        conn.commit()
+
+    return {
+        "asset": asset,
+        "holding_quantity": target_qty,
+        "holding_usd_value": target_qty * price_usd,
+    }
+
+
+def record_synthetic_transactions(rows: list[tuple[str, str, float, float, str]]) -> None:
+    """Inserts multiple transaction rows directly (dry_run=0) under a single
+    _trade_lock acquisition, skipping execute_trade's cash/holdings mutation
+    and validation entirely. Each row is (asset, side, quantity, price_usd,
+    reason). Debug/demo only: used by risk.py's force_consecutive_losses_breach
+    to write a realized-loss streak straight into the data
+    realized_pnl_and_cost_basis reads, which is otherwise nearly unreachable
+    on demand -- a real losing streak needs real losing live trades, and
+    DRY_RUN sells are correctly excluded from realized P&L. Writing the whole
+    sequence under one lock (rather than one acquisition per row) matters
+    because the streak these rows are meant to produce depends on them being
+    contiguous in the transaction table's id order -- a real concurrent trade
+    interleaving partway through would break that contiguity even if each
+    individual row insert were itself correct (a real Qodo finding). Never
+    called from the agent's own decision loop; asset is deliberately not
+    validated against TRADABLE_ASSETS so callers can use an isolated
+    synthetic ticker that can't blend into any real position's cost basis
+    (see force_consecutive_losses_breach)."""
+    with _trade_lock:
+        conn = db.get_conn()
+        now = datetime.now(timezone.utc).isoformat()
+        for asset, side, quantity, price_usd, reason in rows:
+            usd_value = quantity * price_usd
+            conn.execute(
+                "INSERT INTO transactions "
+                "(timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                (now, asset.upper(), side, quantity, price_usd, usd_value, reason),
+            )
+        conn.commit()
+
+
+def _roll_day_start_if_needed(current_total_usd: float, positions: list[dict]) -> float:
     """Lazily snapshots the portfolio's total value as the "start of day"
     baseline the first time it's checked on a new UTC calendar day, then
     returns whatever the current baseline is. Called from get_portfolio --
@@ -86,9 +202,50 @@ def _roll_day_start_if_needed(current_total_usd: float) -> float:
         # nearly everything else calls (execute_trade, check_risk_limits, a
         # plain portfolio read) -- an unguarded failure here would crash the
         # very first read of every new day, not just this one function.
-        _safe_record_equity_snapshot(current_total_usd, "day_start")
+        _safe_record_equity_snapshot(current_total_usd, "day_start", positions)
         return current_total_usd
     return stored_value if stored_value is not None else current_total_usd
+
+
+# Serializes the periodic snapshot's own "is one due" check against its own
+# conditional insert -- without this, two threads calling get_portfolio at
+# nearly the same moment could both read the same stale latest-snapshot row
+# before either has inserted, and both decide a snapshot is due, breaking
+# the "at most every PERIODIC_SNAPSHOT_INTERVAL_SECONDS" guarantee (a real
+# Qodo finding). Deliberately separate from _trade_lock: this guards
+# observability data, not funds, and the live-trade snapshot path already
+# has its own ordering guarantee from being called inside _trade_lock.
+_snapshot_lock = threading.Lock()
+
+
+def _record_periodic_snapshot_if_due(current_total_usd: float, positions: list[dict]) -> None:
+    """Opportunistically appends an equity_snapshots row if it's been at
+    least PERIODIC_SNAPSHOT_INTERVAL_SECONDS since the last one, checked
+    lazily on every get_portfolio call -- same "no real scheduler" pattern
+    as _roll_day_start_if_needed, just for a shorter interval. Without this,
+    the equity curve only gets a point when a trade happens or the day
+    rolls over, so a portfolio that moves purely from price drift between
+    trades (or isn't traded for a while) leaves a gap in the drawdown/Sharpe
+    curve as wide as that whole idle stretch. Piggybacks on whatever already
+    calls get_portfolio -- an agent turn, a dashboard poll, a debug call --
+    instead of a background thread or cron job, which this paper wallet has
+    neither the need nor the process model for.
+
+    Naturally self-throttling against the day-start snapshot: if that one
+    just fired, the most recent row is a few milliseconds old, so this call
+    sees elapsed well under the interval and skips -- no double-insert on
+    the first read of a new day."""
+    with _snapshot_lock:
+        conn = db.get_conn()
+        row = conn.execute(
+            "SELECT timestamp FROM equity_snapshots ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            last = datetime.fromisoformat(row["timestamp"])
+            elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+            if elapsed < PERIODIC_SNAPSHOT_INTERVAL_SECONDS:
+                return
+        _safe_record_equity_snapshot(current_total_usd, "periodic", positions)
 
 
 def _price_usd(asset: str) -> dict:
@@ -156,11 +313,14 @@ def get_portfolio() -> dict:
             "market_open": quote["market_open"],
         })
 
+    day_start_value_usd = _roll_day_start_if_needed(total_usd, positions)
+    _record_periodic_snapshot_if_due(total_usd, positions)
+
     return {
         "cash_usd": cash,
         "positions": positions,
         "total_usd": total_usd,
-        "day_start_value_usd": _roll_day_start_if_needed(total_usd),
+        "day_start_value_usd": day_start_value_usd,
         "dry_run": config.DRY_RUN,
     }
 
@@ -188,13 +348,24 @@ def get_transaction_log(limit: int = 50) -> list[dict]:
     return results
 
 
-def _safe_record_equity_snapshot(total_usd: float, reason: str) -> None:
+def _safe_record_equity_snapshot(total_usd: float, reason: str, positions: list[dict]) -> None:
     """record_equity_snapshot is best-effort observability, not part of the
     trade's own correctness -- a network hiccup fetching prices for the
     snapshot must never surface as a failed execute_trade after the trade
     (or its DRY_RUN log entry) has already committed. A caller that saw a
     failure here and retried the "failed" trade would double-execute it
-    (a real Qodo finding)."""
+    (a real Qodo finding).
+
+    Also refuses to record when any position lacks a live quote:
+    get_portfolio's total_usd silently excludes an unpriced position's
+    value, so recording it as-is would durably plant a fabricated low
+    equity point that outlives the quote outage -- unlike one bad read, a
+    stored snapshot stays in every future max_drawdown_pct/sharpe_ratio
+    calculation forever (a real Qodo finding, most exposed by the periodic
+    snapshot since it runs far more often than a trade or day-start
+    rollover)."""
+    if any(p["price_usd"] is None for p in positions):
+        return
     try:
         record_equity_snapshot(total_usd, reason)
     except Exception:
@@ -283,7 +454,8 @@ def execute_trade(
             (now, asset, side, quantity, price_usd, usd_value, reason, risk_snapshot_json),
         )
         conn.commit()
-        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:dry_run")
+        portfolio = get_portfolio()
+        _safe_record_equity_snapshot(portfolio["total_usd"], f"trade:{asset}:{side}:dry_run", portfolio["positions"])
         return {
             "dry_run": True,
             "executed": False,
@@ -335,7 +507,8 @@ def execute_trade(
         # commit and snapshot first, which would insert equity_snapshots rows
         # out of true chronological order (a real Qodo finding; metrics.py
         # reads this table in insertion order).
-        _safe_record_equity_snapshot(get_portfolio()["total_usd"], f"trade:{asset}:{side}:live")
+        portfolio = get_portfolio()
+        _safe_record_equity_snapshot(portfolio["total_usd"], f"trade:{asset}:{side}:live", portfolio["positions"])
 
     return {
         "dry_run": False,

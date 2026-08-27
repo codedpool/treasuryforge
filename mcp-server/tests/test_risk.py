@@ -54,6 +54,113 @@ def test_force_daily_drawdown_breach_margin(seeded_wallet):
     assert result["forced"] is True
 
 
+def test_concentration_breach_via_force_trigger(seeded_wallet):
+    risk.force_concentration_breach("BTC")
+    result = risk.check_risk_limits("BTC", "buy", usd_amount=1)
+    assert result["triggers"]["concentration"]["breached"] is True
+    assert result["triggers"]["concentration"]["projected_pct"] > 50.0
+    assert result["any_breach"] is True
+
+
+def test_force_concentration_breach_margin(seeded_wallet):
+    result = risk.force_concentration_breach("BTC", margin_pct=5.0)
+    assert result["synthetic_concentration_pct"] == pytest.approx(55.0)
+    assert result["forced"] is True
+    assert result["asset"] == "BTC"
+
+
+def test_force_concentration_breach_rejects_unknown_asset(seeded_wallet):
+    with pytest.raises(ValueError, match="Unknown tradable asset"):
+        risk.force_concentration_breach("DOGE")
+
+
+@pytest.mark.parametrize("bad_margin", [0, -1, 50, 100, float("nan"), float("inf")])
+def test_force_concentration_breach_rejects_invalid_margin(seeded_wallet, bad_margin):
+    # target_pct = 50 + margin_pct must land strictly between 0 and 100:
+    # margin_pct <= 0 wouldn't actually breach (target_pct <= 50), and
+    # margin_pct >= 50 divides by zero or goes negative in the underlying
+    # holding-quantity math.
+    with pytest.raises(ValueError, match="margin_pct must be"):
+        risk.force_concentration_breach("BTC", margin_pct=bad_margin)
+
+
+def test_force_concentration_breach_rejects_when_another_position_is_unpriced(seeded_wallet, monkeypatch):
+    # Forcing BTC's concentration must fail closed if ANY held position is
+    # unpriced, not just BTC itself -- otherwise the promised follow-up
+    # check_risk_limits call would itself refuse to run at all, since it
+    # requires every position to be priced.
+    def flaky_equity_price(symbol):
+        if symbol == "TCS.NS":
+            raise RuntimeError("simulated quote outage")
+        price_inr = {"RELIANCE.NS": 2_500.0, "INFY.NS": 1_500.0, "HDFCBANK.NS": 1_600.0}[symbol]
+        return {
+            "symbol": symbol,
+            "price_inr": price_inr,
+            "price_usd": price_inr / 83.0,
+            "change_24h_pct": 0.0,
+            "market_open": True,
+            "source": "mock",
+        }
+
+    monkeypatch.setattr(wallet, "get_equity_price", flaky_equity_price)
+    with pytest.raises(ValueError, match="no live quote"):
+        risk.force_concentration_breach("BTC")
+
+
+def test_sell_all_breach_via_force_trigger(seeded_wallet):
+    forced = risk.force_sell_all_breach("BTC", quantity=0.05)
+    result = risk.check_risk_limits("BTC", "sell", quantity=forced["holding_quantity"])
+    assert result["triggers"]["sell_all"]["breached"] is True
+    assert result["any_breach"] is True
+
+
+def test_force_sell_all_breach_rejects_bad_quantity(seeded_wallet):
+    with pytest.raises(ValueError, match="finite positive"):
+        risk.force_sell_all_breach("BTC", quantity=0)
+
+
+def test_force_sell_all_breach_rejects_unknown_asset(seeded_wallet):
+    with pytest.raises(ValueError, match="Unknown tradable asset"):
+        risk.force_sell_all_breach("DOGE", quantity=1)
+
+
+def test_consecutive_losses_breach_via_force_trigger(seeded_wallet):
+    forced = risk.force_consecutive_losses_breach()
+    assert forced["synthetic_losing_sells"] == risk.CONSECUTIVE_LOSS_LIMIT + 1
+
+    result = risk.check_risk_limits("ETH", "buy", usd_amount=50)
+    assert result["triggers"]["consecutive_losses"]["streak"] == risk.CONSECUTIVE_LOSS_LIMIT + 1
+    assert result["triggers"]["consecutive_losses"]["breached"] is True
+    assert result["any_breach"] is True
+
+
+def test_force_consecutive_losses_breach_custom_count(seeded_wallet):
+    forced = risk.force_consecutive_losses_breach(count=5)
+    assert forced["synthetic_losing_sells"] == 5
+    assert risk.consecutive_losses() == 5
+
+
+def test_force_consecutive_losses_breach_does_not_corrupt_real_cost_basis(clean_btc_cost_basis):
+    # The synthetic losses live under an isolated 'DEMO_LOSS' ticker -- a
+    # real BTC trade made afterward must still see the clean cost basis
+    # clean_btc_cost_basis set up, unaffected by the forced streak.
+    risk.force_consecutive_losses_breach()
+    wallet.execute_trade("BTC", "buy", quantity=1.0, price_usd=100.0)
+    wallet.execute_trade("BTC", "sell", quantity=1.0, price_usd=90.0)  # real loss: -10
+
+    pnl_series, _ = wallet.realized_pnl_and_cost_basis()
+    assert pnl_series[-1] == pytest.approx(-10.0)
+
+
+@pytest.mark.parametrize("bad_count", [0, 1, 2, -1])
+def test_force_consecutive_losses_breach_rejects_counts_that_would_not_breach(seeded_wallet, bad_count):
+    # A count at or below CONSECUTIVE_LOSS_LIMIT (2) would report "forced:
+    # true" without the streak actually exceeding the trigger's own > 2
+    # condition -- a real Qodo finding.
+    with pytest.raises(ValueError, match="greater than CONSECUTIVE_LOSS_LIMIT"):
+        risk.force_consecutive_losses_breach(count=bad_count)
+
+
 def test_consecutive_losses_breach(seeded_wallet, live_trading):
     # Three real losing sells in a row (avg cost 100, sold below it each time).
     wallet.execute_trade("BTC", "buy", quantity=3.0, price_usd=100.0)

@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
-from app import config, wallet
+from app import config, db, wallet
 
 
 # --- Input validation -------------------------------------------------
@@ -172,6 +174,54 @@ def isolated_count(db_module) -> int:
     return db_module.get_conn().execute("SELECT COUNT(*) FROM equity_snapshots").fetchone()[0]
 
 
+# --- Debug-only state mutation primitives ---------------------------------
+# Used by risk.py's force_* helpers (test_risk.py) to put the wallet in a
+# specific state on demand for a demo.
+
+def test_set_holding_quantity_overwrites_without_touching_cash(seeded_wallet):
+    before_cash = wallet.get_portfolio()["cash_usd"]
+    wallet.set_holding_quantity("BTC", 12.5)
+    after = wallet.get_portfolio()
+    btc = next(p["quantity"] for p in after["positions"] if p["asset"] == "BTC")
+    assert btc == pytest.approx(12.5)
+    assert after["cash_usd"] == pytest.approx(before_cash)
+
+
+def test_set_holding_quantity_creates_a_holding_row_for_a_new_asset(isolated_db):
+    # Queries the holdings table directly, not via get_portfolio -- a
+    # get_portfolio call would trigger _ensure_seeded on this never-seeded
+    # db and overwrite this with the seed's own target quantity.
+    wallet.set_holding_quantity("ETH", 3.0)
+    row = isolated_db.execute("SELECT quantity FROM holdings WHERE asset = 'ETH'").fetchone()
+    assert row["quantity"] == pytest.approx(3.0)
+
+
+def test_record_synthetic_transactions_does_not_touch_holdings(seeded_wallet):
+    before = wallet.get_portfolio()
+    holdings_before = {p["asset"]: p["quantity"] for p in before["positions"]}
+
+    wallet.record_synthetic_transactions([("DEMO_LOSS", "sell", 0.01, 50.0, "test")])
+
+    log = wallet.get_transaction_log(limit=1)
+    assert log[0]["asset"] == "DEMO_LOSS"
+    assert log[0]["side"] == "sell"
+    assert log[0]["dry_run"] == 0
+
+    after = wallet.get_portfolio()
+    holdings_after = {p["asset"]: p["quantity"] for p in after["positions"]}
+    assert holdings_before == holdings_after
+
+
+def test_record_synthetic_transactions_writes_multiple_rows(seeded_wallet):
+    wallet.record_synthetic_transactions([
+        ("DEMO_LOSS", "buy", 0.02, 100.0, "test"),
+        ("DEMO_LOSS", "sell", 0.01, 50.0, "test"),
+        ("DEMO_LOSS", "sell", 0.01, 50.0, "test"),
+    ])
+    log = wallet.get_transaction_log(limit=3)
+    assert [entry["side"] for entry in reversed(log)] == ["buy", "sell", "sell"]
+
+
 # --- Day-start baseline --------------------------------------------------
 
 def test_day_start_established_on_first_read(isolated_db, mock_prices):
@@ -227,3 +277,87 @@ def test_realized_pnl_uses_average_cost_basis(clean_btc_cost_basis):
     assert pnl_series == [pytest.approx(0.0), pytest.approx(-10.0), pytest.approx(45.0)]
     remaining_qty, remaining_cost = cost_basis["BTC"]
     assert remaining_qty == pytest.approx(1.0)  # 2 bought - 1 sold, from a cleared position
+
+
+# --- Periodic equity snapshot ---------------------------------------------
+
+def _backdate_latest_snapshot(seconds_ago: float) -> None:
+    conn = db.get_conn()
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
+    conn.execute(
+        "UPDATE equity_snapshots SET timestamp = ? WHERE id = (SELECT MAX(id) FROM equity_snapshots)",
+        (stale,),
+    )
+    conn.commit()
+
+
+def test_periodic_snapshot_recorded_when_stale(isolated_db, mock_prices):
+    wallet.get_portfolio()  # seeds + day-start rollover -- one snapshot already
+    _backdate_latest_snapshot(wallet.PERIODIC_SNAPSHOT_INTERVAL_SECONDS + 1)
+    before = isolated_count(db)
+
+    wallet.get_portfolio()
+
+    after = isolated_count(db)
+    assert after == before + 1
+    latest_reason = isolated_db.execute(
+        "SELECT reason FROM equity_snapshots ORDER BY id DESC LIMIT 1"
+    ).fetchone()["reason"]
+    assert latest_reason == "periodic"
+
+
+def test_periodic_snapshot_not_recorded_when_recent(isolated_db, mock_prices):
+    wallet.get_portfolio()  # seeds + day-start rollover -- one snapshot already
+    before = isolated_count(db)
+
+    wallet.get_portfolio()  # only a moment later -- well under the interval
+
+    after = isolated_count(db)
+    assert after == before
+
+
+def test_periodic_snapshot_does_not_double_up_with_day_start_snapshot(isolated_db, mock_prices):
+    # First-ever get_portfolio call on a fresh wallet: day-start rollover
+    # fires its own snapshot, and the periodic check runs immediately after
+    # in the same call -- must see that snapshot as "just happened" and
+    # skip, not add a second row.
+    wallet.get_portfolio()
+    assert isolated_count(db) == 1
+
+
+def _flaky_equity_price(symbol: str) -> dict:
+    if symbol == "TCS.NS":
+        raise RuntimeError("simulated quote outage")
+    price_inr = {"RELIANCE.NS": 2_500.0, "INFY.NS": 1_500.0, "HDFCBANK.NS": 1_600.0}[symbol]
+    return {
+        "symbol": symbol,
+        "price_inr": price_inr,
+        "price_usd": price_inr / 83.0,
+        "change_24h_pct": 0.0,
+        "market_open": True,
+        "source": "mock",
+    }
+
+
+def test_safe_record_equity_snapshot_skips_when_any_position_unpriced(isolated_db):
+    positions = [
+        {"asset": "BTC", "price_usd": 80_000.0},
+        {"asset": "TCS.NS", "price_usd": None},
+    ]
+    wallet._safe_record_equity_snapshot(10_000.0, "test", positions)
+    assert isolated_count(db) == 0
+
+
+def test_periodic_snapshot_skipped_when_a_position_is_unpriced(isolated_db, mock_prices, monkeypatch):
+    # A stored snapshot outlives the outage that produced it -- total_usd
+    # silently excludes an unpriced position's value (see get_portfolio), so
+    # recording it as-is would permanently understate the equity curve even
+    # after the quote source recovers.
+    wallet.get_portfolio()  # seeds + day-start rollover -- one snapshot already
+    _backdate_latest_snapshot(wallet.PERIODIC_SNAPSHOT_INTERVAL_SECONDS + 1)
+    before = isolated_count(db)
+
+    monkeypatch.setattr(wallet, "get_equity_price", _flaky_equity_price)
+    wallet.get_portfolio()  # due for a periodic snapshot, but TCS.NS is unpriced
+
+    assert isolated_count(db) == before

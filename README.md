@@ -185,6 +185,14 @@ market-hours rule is a hard rejection inside `execute_trade` itself, not an
 approval-routed trigger — there's no live, tradeable price to gate a
 decision on once the market is closed.
 
+All four gated triggers have a matching force-trigger debug endpoint (see
+[Debug / demo-only endpoints](#debug--demo-only-endpoints)) so each can be
+demonstrated on cue instead of waiting for the agent to happen into one
+naturally. Consecutive-losses specifically has no natural path to firing at
+all under the default `DRY_RUN=true`, since DRY_RUN sells are correctly
+excluded from realized P&L — its debug endpoint is the only way to see that
+particular gate fire without flipping `DRY_RUN` off first.
+
 ## The self-audit sub-agent
 
 TrueForge's `dynamic_sub_agents` capability exposes one tool to the model:
@@ -351,7 +359,7 @@ curl -X POST http://localhost:8790/api/v1/sessions/{id}/turns \
 ## Testing
 
 Both the wallet server's logic and `scripts/setup_trueforge.py`'s pure
-functions have a pytest suite — 82 tests, none requiring network access or
+functions have a pytest suite — 88 tests, none requiring network access or
 a running TrueForge/wallet instance (prices are mocked; SQLite runs against
 a throwaway per-test file, never the real dev `wallet.db`). Runs in CI
 (`.github/workflows/tests.yml`) on every push and every pull request.
@@ -363,14 +371,15 @@ cd scripts && pip install -r requirements-dev.txt && pytest
 
 Covers: `execute_trade`'s full validation surface and DRY_RUN/live
 behavior, the average-cost-basis P&L accounting (including DRY_RUN
-exclusion), all four risk triggers individually, `max_drawdown_pct`/
-`sharpe_ratio` against known synthetic curves, the day-start baseline
-rollover, schema migration idempotency, and the manifest-merge logic that
-updates an existing agent without erasing its customizations. Several of
-these tests found real bugs while being written — not just confirmed
-existing behavior — including a Sharpe-ratio edge case where near-zero
-floating-point variance (not exactly zero) produced a meaningless
-enormous ratio instead of the `None` a flat equity curve should report.
+exclusion), all four risk triggers individually and all four force-trigger
+debug endpoints, `max_drawdown_pct`/`sharpe_ratio` against known synthetic
+curves, the day-start and periodic equity-snapshot recording, schema
+migration idempotency, and the manifest-merge logic that updates an
+existing agent without erasing its customizations. Several of these tests
+found real bugs while being written — not just confirmed existing behavior
+— including a Sharpe-ratio edge case where near-zero floating-point
+variance (not exactly zero) produced a meaningless enormous ratio instead
+of the `None` a flat equity curve should report.
 
 ## Debug / demo-only endpoints
 
@@ -383,6 +392,23 @@ demo reliability only:
   the stored baseline back) so a demo can reliably show the approval gate
   firing over a real computed number, without hoping the agent proposes a
   risky trade naturally on camera.
+- `POST /debug/trigger-approval/concentration?asset=BTC&margin_pct=1` —
+  overwrites `asset`'s holding so it alone already exceeds the 50%
+  concentration limit; the next `check_risk_limits` call proposing to **buy**
+  that asset reports a genuine breach (a large enough sell can still
+  legitimately bring projected concentration back under the limit, since the
+  trigger evaluates the post-trade holding, not the current one).
+- `POST /debug/trigger-approval/sell-all?asset=BTC&quantity=0.05` —
+  overwrites `asset`'s holding to exactly `quantity` and returns it, so a
+  follow-up sell of that same quantity reliably trips the sell-all trigger
+  without first having to read the live (often long-decimal) holding.
+- `POST /debug/trigger-approval/consecutive-losses?count=3` — writes `count`
+  synthetic losing sells straight into the transaction log, under an
+  isolated `DEMO_LOSS` ticker that can never blend into or corrupt a real
+  asset's cost basis. The only one of the four triggers with no natural way
+  to fire on demand at all under `DRY_RUN=true`.
+
+Every debug route above is cleared by `POST /debug/reset`.
 
 ## Design decisions
 
@@ -416,11 +442,19 @@ demo reliability only:
   a local paper wallet), so a drop before the very first read of a given
   day can still be invisible. Documented, not hidden.
 - **Sharpe ratio is deliberately left unannualized.** It's computed from an
-  event-driven equity-snapshot series (recorded on trades and daily
-  rollovers, not a fixed interval), and annualizing implies a regular
-  observation cadence that data doesn't have. An annualized number computed
-  from irregularly-spaced session data would be more misleading than
-  useful.
+  equity-snapshot series recorded on trades, daily rollovers, and a
+  lazily-checked periodic top-up (below) — still not a true fixed interval,
+  since the periodic check only fires when something calls `get_portfolio`
+  — and annualizing implies a regular observation cadence that data doesn't
+  have. An annualized number computed from irregularly-spaced session data
+  would be more misleading than useful.
+- **The periodic equity snapshot has no scheduler either.** Like the
+  day-start baseline, it's a lazy check inside `get_portfolio`: if it's
+  been at least 5 minutes since the last recorded snapshot, it records
+  another one. This closes most of the gap a purely trade-driven curve
+  would otherwise have during an idle stretch, without a background thread
+  or cron job — but it's still bounded by how often something actually
+  reads the portfolio, not true fixed-interval mark-to-market.
 - **Gemini's `gemini-flash-lite` is the default primary model**, not the
   larger `gemini-flash`/`gemini-pro`. Under this project's free-tier key,
   `gemini-pro` has a hard 0-request quota and `gemini-flash` exhausts fast

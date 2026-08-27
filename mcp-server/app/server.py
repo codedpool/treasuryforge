@@ -25,6 +25,14 @@ Debug-only routes (never on the live decision path -- see README):
   - POST /debug/trigger-approval: synthesizes a daily-drawdown breach so a
     demo can reliably show the approval gate firing over a real computed
     number on cue. Never called from the agent's own decision loop.
+  - POST /debug/trigger-approval/concentration: same, for the concentration
+    trigger (see risk.force_concentration_breach).
+  - POST /debug/trigger-approval/sell-all: same, for the sell_all trigger
+    (see risk.force_sell_all_breach).
+  - POST /debug/trigger-approval/consecutive-losses: same, for the
+    consecutive_losses trigger (see risk.force_consecutive_losses_breach) --
+    the only one of the four with no natural way to fire on demand at all
+    under the default DRY_RUN=true.
   - GET /health: liveness check.
 
 Every route except /health requires the X-Wallet-Secret header (see
@@ -175,6 +183,27 @@ async def debug_trigger_approval():
     computed number to fire on for a demo. Never called from the agent's own
     decision loop; cleared by POST /debug/reset."""
     return risk.force_daily_drawdown_breach()
+
+
+@api.post("/debug/trigger-approval/concentration")
+async def debug_trigger_approval_concentration(asset: str = "BTC", margin_pct: float = 1.0):
+    """Demo/testing only -- see risk.force_concentration_breach. Never
+    called from the agent's own decision loop; cleared by POST /debug/reset."""
+    return risk.force_concentration_breach(asset=asset, margin_pct=margin_pct)
+
+
+@api.post("/debug/trigger-approval/sell-all")
+async def debug_trigger_approval_sell_all(asset: str = "BTC", quantity: float = 0.05):
+    """Demo/testing only -- see risk.force_sell_all_breach. Never called
+    from the agent's own decision loop; cleared by POST /debug/reset."""
+    return risk.force_sell_all_breach(asset=asset, quantity=quantity)
+
+
+@api.post("/debug/trigger-approval/consecutive-losses")
+async def debug_trigger_approval_consecutive_losses(count: int | None = None):
+    """Demo/testing only -- see risk.force_consecutive_losses_breach. Never
+    called from the agent's own decision loop; cleared by POST /debug/reset."""
+    return risk.force_consecutive_losses_breach(count=count)
 
 
 if __name__ == "__main__":
