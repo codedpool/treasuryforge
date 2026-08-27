@@ -18,7 +18,7 @@ baseline rollover, via wallet.py) and reads.
 import math
 from datetime import datetime, timezone
 
-from . import db, wallet
+from . import wallet
 
 DAILY_DRAWDOWN_LIMIT_PCT = 5.0
 MAX_SINGLE_ASSET_PCT = 50.0
@@ -26,43 +26,14 @@ CONSECUTIVE_LOSS_LIMIT = 2
 SELL_ALL_THRESHOLD_PCT = 99.0  # selling >= this much of a holding counts as "sell all"
 
 
-def _realized_pnl_series() -> list[float]:
-    """Realized P&L of every *executed* sell, oldest first, using running
-    average cost per asset. Seed rows count toward cost basis (they
-    represent a real acquisition price) but aren't sales themselves.
-    DRY_RUN rows are excluded entirely -- they never touched holdings (see
-    wallet.execute_trade), so counting them here would let simulated trades
-    fabricate a consecutive-loss streak (and corrupt the cost basis used for
-    real sells) under the default DRY_RUN=true config."""
-    conn = db.get_conn()
-    rows = conn.execute(
-        "SELECT asset, side, quantity, price_usd FROM transactions "
-        "WHERE side IN ('buy', 'sell', 'seed') AND asset != 'CASH' AND dry_run = 0 "
-        "ORDER BY id ASC"
-    ).fetchall()
-
-    cost_basis: dict[str, tuple[float, float]] = {}  # asset -> (total_qty, total_cost)
-    pnl_series: list[float] = []
-
-    for r in rows:
-        asset, side, qty, price = r["asset"], r["side"], r["quantity"], r["price_usd"]
-        tot_qty, tot_cost = cost_basis.get(asset, (0.0, 0.0))
-        if side in ("buy", "seed"):
-            cost_basis[asset] = (tot_qty + qty, tot_cost + qty * price)
-        else:  # sell
-            avg_price = tot_cost / tot_qty if tot_qty > 1e-12 else price
-            pnl_series.append((price - avg_price) * qty)
-            new_qty = max(tot_qty - qty, 0.0)
-            cost_basis[asset] = (new_qty, avg_price * new_qty)
-
-    return pnl_series
-
-
 def consecutive_losses() -> int:
     """How many of the most recent sells, walking backward, were losses --
-    resets at the first winning sell (or the start of history)."""
+    resets at the first winning sell (or the start of history). Uses
+    wallet.realized_pnl_and_cost_basis, shared with metrics.py, so this and
+    the P&L numbers reported elsewhere can never disagree."""
+    pnl_series, _cost_basis = wallet.realized_pnl_and_cost_basis()
     streak = 0
-    for pnl in reversed(_realized_pnl_series()):
+    for pnl in reversed(pnl_series):
         if pnl < 0:
             streak += 1
         else:
