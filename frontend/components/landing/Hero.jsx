@@ -18,18 +18,23 @@ export default function Hero() {
         sizes="100vw"
         className="object-cover object-center"
       />
-      {/* Light touch only: just enough to keep the headline (sitting
-          directly on the image, left side) and the nav/bottom edges
-          legible, without smothering the image's own glow. Fades to fully
-          transparent by the right two-thirds so the light beam and lit
-          skyline stay visible. */}
-      <div className="absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/35 to-transparent" />
+      {/* Darkening is scoped to the upper ~60% of the frame, where the
+          headline sits -- the lower-left figure and the cityscape below
+          stay clear of both the gradient and the text block above. */}
+      <div className="absolute inset-x-0 top-0 h-[60%] bg-gradient-to-r from-ink/85 via-ink/35 to-transparent" />
       <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-ink/70 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
 
-      <nav className="relative z-10 flex items-center justify-between font-mono text-xs uppercase tracking-wideish text-ink-muted">
-        <span className="text-ink-bright">TreasuryForge</span>
-        <div className="flex items-center gap-6">
+      <nav className="relative z-10 flex items-center justify-between">
+        <Image
+          src="/logo.png"
+          alt="TreasuryForge"
+          width={1239}
+          height={1270}
+          priority
+          className="h-16 w-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)] md:h-20"
+        />
+        <div className="flex items-center gap-6 font-mono text-xs uppercase tracking-wideish text-ink-muted">
           <a href="#how-it-works" className="hidden hover:text-ink-bright md:inline">
             How it works
           </a>
@@ -42,17 +47,14 @@ export default function Hero() {
           >
             Open dashboard
           </Link>
-          <Image
-            src="/logo.png"
-            alt="TreasuryForge"
-            width={1239}
-            height={1270}
-            className="h-9 w-auto drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]"
-          />
         </div>
       </nav>
 
-      <div className="relative z-10 flex flex-1 flex-col justify-center gap-14 py-16 md:py-0">
+      {/* Top-aligned, not vertically centered: the figure in the source
+          image stands lower-left, and a centered text block would sit
+          right on top of him. Keeping the copy up near the nav leaves him
+          and the city below fully clear. */}
+      <div className="relative z-10 flex flex-1 flex-col justify-start pb-16 pt-10 md:pt-14">
         <div className="max-w-xl">
           <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber">
             Built natively on TrueForge
