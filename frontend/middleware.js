@@ -17,8 +17,14 @@ const SECRET = process.env.DASHBOARD_ACCESS_SECRET;
  * cache handle everything -- and matches this project's existing "a
  * localhost bind is not the security boundary, a shared secret is" posture
  * (see mcp-server's own README) rather than inventing a second, different
- * security model. Fails closed: an unset secret blocks every gated route
- * rather than silently leaving them open.
+ * security model.
+ *
+ * Opt-in, not fail-closed: this only matters once the dashboard is
+ * reachable by someone other than you (a public deploy). Running it
+ * locally for development or a demo, with no one else able to reach your
+ * machine, doesn't need it -- so an unset secret leaves the gate open
+ * rather than blocking every route with a 500. Set DASHBOARD_ACCESS_SECRET
+ * before deploying anywhere reachable by others to turn it back on.
  *
  * Basic Auth alone is not enough on its own, though: unlike a SameSite
  * cookie, the browser caches Basic Auth credentials per *origin* and
@@ -60,20 +66,16 @@ function isTrustedSourceOrigin(request) {
 }
 
 export function middleware(request) {
-  if (!SECRET) {
-    return new NextResponse(
-      "DASHBOARD_ACCESS_SECRET is not set. The dashboard refuses to serve wallet data or " +
-        "destructive routes without it -- see frontend/.env.example.",
-      { status: 500 }
-    );
-  }
-
   if (request.method !== "GET" && request.method !== "HEAD" && !isTrustedSourceOrigin(request)) {
     return new NextResponse(
       "Cross-site request rejected -- no matching Origin or Referer header. Add one explicitly " +
         'if this is a legitimate script (e.g. -H "Origin: <this app\'s URL>").',
       { status: 403 }
     );
+  }
+
+  if (!SECRET) {
+    return NextResponse.next();
   }
 
   const authHeader = request.headers.get("authorization") || "";
