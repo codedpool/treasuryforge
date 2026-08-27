@@ -7,7 +7,7 @@ scripts/setup_trueforge.py in the repo root for how this gets registered.
 
 Tool surface:
   - get_portfolio, get_transaction_log, get_crypto_price, get_equity_price,
-    check_risk_limits: read-only.
+    check_risk_limits, get_wallet_metrics: read-only.
   - execute_trade: the only tool that writes wallet state. Register it with
     require_approval_for_tools on the TrueForge side so every trade pauses
     for a human checkpoint -- see setup_trueforge.py. TrueForge's checkpoint
@@ -41,7 +41,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 
-from . import config, risk, wallet
+from . import config, metrics, risk, wallet
 from .pricing_crypto import get_crypto_price as _get_crypto_price
 from .pricing_equity import get_equity_price as _get_equity_price
 
@@ -92,6 +92,15 @@ def check_risk_limits(
     you must run a sandbox cross-asset stress test first and cite its
     resulting drawdown number too."""
     return risk.check_risk_limits(asset=asset, side=side, quantity=quantity, usd_amount=usd_amount)
+
+
+@mcp.tool
+def get_wallet_metrics() -> dict:
+    """Realized + unrealized P&L, win rate, max drawdown, and an
+    unannualized Sharpe ratio, computed from actual transaction and equity
+    history -- not your own estimate. Use this (not a guess) when reporting
+    performance, e.g. in a self-audit summary."""
+    return metrics.get_wallet_metrics()
 
 
 @mcp.tool
