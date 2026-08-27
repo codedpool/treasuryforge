@@ -90,3 +90,25 @@ def seeded_wallet(isolated_db, mock_prices):
     target allocation) ready for a test to trade against."""
     wallet._ensure_seeded()
     return isolated_db
+
+
+@pytest.fixture
+def live_trading(monkeypatch):
+    """DRY_RUN off -- execute_trade actually mutates holdings."""
+    from app import config
+
+    monkeypatch.setattr(config, "DRY_RUN", False)
+
+
+@pytest.fixture
+def clean_btc_cost_basis(seeded_wallet, live_trading):
+    """seeded_wallet already holds BTC from seeding (at BTC_PRICE), which
+    would otherwise blend into every cost-basis calculation a test does.
+    Selling the whole position at that same seed price contributes a real,
+    but exactly-zero, P&L entry, leaving a genuinely clean cost basis
+    (qty=0, cost=0) for whatever trades the test actually cares about --
+    cleaner than hand-computing the seed's contribution into every expected
+    value. Any test using this must account for that one leading zero entry
+    in realized_pnl_and_cost_basis()'s pnl_series."""
+    btc_qty = next(p["quantity"] for p in wallet.get_portfolio()["positions"] if p["asset"] == "BTC")
+    wallet.execute_trade("BTC", "sell", quantity=btc_qty, price_usd=BTC_PRICE)

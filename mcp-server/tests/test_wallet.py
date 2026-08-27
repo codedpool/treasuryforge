@@ -81,11 +81,7 @@ def test_transaction_log_risk_snapshot_is_none_when_not_given(seeded_wallet):
 
 
 # --- Live trading (DRY_RUN=false) ---------------------------------------
-
-@pytest.fixture
-def live_trading(monkeypatch):
-    monkeypatch.setattr(config, "DRY_RUN", False)
-
+# live_trading fixture lives in conftest.py -- shared with test_risk.py.
 
 def test_live_buy_moves_cash_to_holding(seeded_wallet, live_trading):
     before = wallet.get_portfolio()
@@ -204,22 +200,11 @@ def test_write_and_read_day_start_roundtrip(isolated_db):
 
 
 # --- Realized P&L / cost basis -------------------------------------------
+# clean_btc_cost_basis fixture lives in conftest.py -- sells the seeded BTC
+# position first (at its own seed price, contributing an exact-zero P&L
+# entry) so tests below can reason about a clean cost basis.
 
-def _clear_seeded_btc():
-    """seeded_wallet already holds BTC from seeding (at conftest's mocked
-    BTC_PRICE), which would otherwise blend into every cost-basis
-    calculation below. Selling the whole position at that same seed price
-    contributes a real, but exactly-zero, P&L entry, leaving a genuinely
-    clean cost basis (qty=0, cost=0) for the trades a test actually cares
-    about -- cleaner than hand-computing the seed's contribution into every
-    expected value."""
-    btc_qty = next(p["quantity"] for p in wallet.get_portfolio()["positions"] if p["asset"] == "BTC")
-    wallet.execute_trade("BTC", "sell", quantity=btc_qty, price_usd=80_000.0)
-
-
-def test_realized_pnl_excludes_dry_run_trades(seeded_wallet, live_trading, monkeypatch):
-    _clear_seeded_btc()
-
+def test_realized_pnl_excludes_dry_run_trades(clean_btc_cost_basis, monkeypatch):
     # Real loss: sell at a lower price than the live-trading buy above it.
     wallet.execute_trade("BTC", "buy", quantity=1.0, price_usd=100.0)
     wallet.execute_trade("BTC", "sell", quantity=1.0, price_usd=90.0)  # real loss: -10
@@ -232,9 +217,7 @@ def test_realized_pnl_excludes_dry_run_trades(seeded_wallet, live_trading, monke
     assert pnl_series == [pytest.approx(0.0), pytest.approx(-10.0)]
 
 
-def test_realized_pnl_uses_average_cost_basis(seeded_wallet, live_trading):
-    _clear_seeded_btc()
-
+def test_realized_pnl_uses_average_cost_basis(clean_btc_cost_basis):
     wallet.execute_trade("BTC", "buy", quantity=1.0, price_usd=100.0)
     wallet.execute_trade("BTC", "buy", quantity=1.0, price_usd=120.0)  # avg cost now 110
     wallet.execute_trade("BTC", "sell", quantity=0.5, price_usd=90.0)  # (90-110)*0.5 = -10
