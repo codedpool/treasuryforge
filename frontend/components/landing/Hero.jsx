@@ -42,15 +42,22 @@ export default function Hero() {
           >
             Open dashboard
           </Link>
+          <Image
+            src="/logo.png"
+            alt="TreasuryForge"
+            width={1239}
+            height={1270}
+            className="h-9 w-auto drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]"
+          />
         </div>
       </nav>
 
-      <div className="relative z-10 grid flex-1 content-center gap-14 py-16 md:grid-cols-[1.1fr_0.9fr] md:items-center md:gap-10 md:py-0">
-        <div>
+      <div className="relative z-10 flex flex-1 flex-col justify-center gap-14 py-16 md:py-0">
+        <div className="max-w-xl">
           <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber">
             Built natively on TrueForge
           </p>
-          <h1 className="mt-5 max-w-xl font-display text-4xl font-semibold leading-[1.08] text-ink-bright md:text-6xl">
+          <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.08] text-ink-bright md:text-6xl">
             An agent that reaches for the trade, and stops for you.
           </h1>
           <p className="mt-6 max-w-lg text-balance text-base leading-relaxed text-ink-soft md:text-lg">
