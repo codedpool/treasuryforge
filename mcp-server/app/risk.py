@@ -192,3 +192,121 @@ def force_daily_drawdown_breach(margin_pct: float = 1.0) -> dict:
             "clears it."
         ),
     }
+
+
+def force_concentration_breach(asset: str = "BTC", margin_pct: float = 1.0) -> dict:
+    """Debug/demo only -- never called from the agent's own decision loop.
+    Directly overwrites `asset`'s holding quantity so it alone already
+    exceeds MAX_SINGLE_ASSET_PCT of the portfolio, so the *next*
+    check_risk_limits call for this asset (any side/amount) reports a
+    genuine concentration breach on cue -- same demo-on-cue pattern as
+    force_daily_drawdown_breach, but for a real holding instead of the
+    day-start baseline. Cleared by POST /debug/reset (wipes holdings back
+    to the seed)."""
+    asset = asset.upper()
+    if asset not in wallet.TRADABLE_ASSETS:
+        raise ValueError(f"Unknown tradable asset: {asset}. Supported: {wallet.TRADABLE_ASSETS}")
+
+    portfolio = wallet.get_portfolio()
+    position = next((p for p in portfolio["positions"] if p["asset"] == asset), None)
+    if position is None or position["price_usd"] is None:
+        raise ValueError(f"Cannot force a concentration breach: no live quote for {asset} right now.")
+    price_usd = position["price_usd"]
+
+    current_usd_value = position["usd_value"] or 0.0
+    other_usd_value = portfolio["total_usd"] - current_usd_value
+    target_pct = MAX_SINGLE_ASSET_PCT + margin_pct
+    target_asset_usd = (target_pct / 100) * other_usd_value / (1 - target_pct / 100)
+    target_qty = target_asset_usd / price_usd
+
+    wallet.set_holding_quantity(asset, target_qty)
+
+    return {
+        "forced": True,
+        "asset": asset,
+        "holding_quantity": target_qty,
+        "holding_usd_value": round(target_qty * price_usd, 2),
+        "synthetic_concentration_pct": round(target_pct, 3),
+        "note": (
+            f"{asset} holding overwritten so the next check_risk_limits call for this "
+            "asset reports a concentration breach. Debug/demo only -- POST /debug/reset "
+            "clears it."
+        ),
+    }
+
+
+def force_sell_all_breach(asset: str = "BTC", quantity: float = 0.05) -> dict:
+    """Debug/demo only -- never called from the agent's own decision loop.
+    Selling an entire position is already naturally triggerable (see
+    check_risk_limits' sell_all trigger) without any forcing -- it doesn't
+    need a stored breach the way daily_drawdown/concentration do. What a
+    demo actually needs is a known, round holding to sell in full, rather
+    than reading get_portfolio first to find the exact (often long-decimal)
+    live quantity. This overwrites `asset`'s holding to exactly `quantity`
+    and returns it; call check_risk_limits or execute_trade next with
+    side='sell' and this same quantity to trip the sell_all trigger on cue.
+    Cleared by POST /debug/reset."""
+    asset = asset.upper()
+    if asset not in wallet.TRADABLE_ASSETS:
+        raise ValueError(f"Unknown tradable asset: {asset}. Supported: {wallet.TRADABLE_ASSETS}")
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise ValueError(f"quantity must be a finite positive number, got {quantity}")
+
+    wallet.set_holding_quantity(asset, quantity)
+
+    return {
+        "forced": True,
+        "asset": asset,
+        "holding_quantity": quantity,
+        "note": (
+            f"{asset} holding overwritten to exactly {quantity}. Call check_risk_limits "
+            f"or execute_trade next with side='sell', quantity={quantity} to trip the "
+            "sell_all trigger. Debug/demo only -- POST /debug/reset clears it."
+        ),
+    }
+
+
+def force_consecutive_losses_breach(count: int | None = None) -> dict:
+    """Debug/demo only -- never called from the agent's own decision loop.
+    A real losing streak needs real losing live trades, and DRY_RUN sells
+    are correctly excluded from realized P&L (see wallet.py's
+    realized_pnl_and_cost_basis docstring) -- so under the default
+    DRY_RUN=true this trigger has no natural way to fire on demand at all,
+    unlike the other three. Writes `count` synthetic losing sells directly
+    into the transaction log (dry_run=0) under an isolated 'DEMO_LOSS'
+    ticker -- never a real tradable asset -- so this can never blend into
+    or corrupt BTC/ETH/equity cost basis or unrealized P&L; consecutive_losses
+    only cares about the tail of the combined realized-P&L series, not which
+    asset each entry belongs to. Cleared by POST /debug/reset (wipes the
+    transaction log)."""
+    if count is None:
+        count = CONSECUTIVE_LOSS_LIMIT + 1
+    if count < 1:
+        raise ValueError(f"count must be at least 1, got {count}")
+
+    synthetic_asset = "DEMO_LOSS"
+    unit_qty = 0.01
+    cost_price = 100.0
+    loss_price = 50.0
+
+    wallet.record_synthetic_transaction(
+        synthetic_asset, "buy", unit_qty * count, cost_price,
+        "debug: force_consecutive_losses_breach",
+    )
+    for _ in range(count):
+        wallet.record_synthetic_transaction(
+            synthetic_asset, "sell", unit_qty, loss_price,
+            "debug: force_consecutive_losses_breach",
+        )
+
+    return {
+        "forced": True,
+        "synthetic_asset": synthetic_asset,
+        "synthetic_losing_sells": count,
+        "note": (
+            f"{count} synthetic losing sells appended to the transaction log under a "
+            f"synthetic '{synthetic_asset}' ticker (isolated from real BTC/ETH/equity "
+            "cost basis) so the next check_risk_limits call reports a consecutive_losses "
+            "breach. Debug/demo only -- POST /debug/reset clears it."
+        ),
+    }
