@@ -1,9 +1,33 @@
+import Image from "next/image";
 import Link from "next/link";
 import ApprovalReceipt from "@/components/landing/ApprovalReceipt";
 
 export default function Hero() {
   return (
-    <section className="grain-ink relative overflow-hidden border-b border-ink-line bg-ink px-6 pb-20 pt-10 md:px-12 md:pt-14">
+    <section className="grain-ink relative flex min-h-screen flex-col overflow-hidden border-b border-ink-line bg-ink px-6 pb-16 pt-10 md:px-12 md:pt-14">
+      {/* Full-bleed hero art: a lone figure witnessing a tower channeling
+          immense engineered power into the sky -- the same idea this
+          product is actually about (harnessing an agent's computed power
+          toward a goal, with a person still standing watch), not a
+          decorative backdrop. object-cover fills the section at any
+          viewport regardless of the source image's own aspect ratio. */}
+      <Image
+        src="/harness1.png"
+        alt=""
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover object-center"
+      />
+      {/* Left-weighted + top/bottom gradient: keeps the headline (which
+          sits on the left, directly on the background, not inside a card)
+          legible against the image's brightest region (the lit city on the
+          right), and fades to solid ink at the very top (behind the nav)
+          and bottom (so the section blends into Thesis below rather than
+          cutting off mid-image). */}
+      <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/75 to-ink/35" />
+      <div className="absolute inset-0 bg-gradient-to-b from-ink via-transparent to-ink" />
+
       <nav className="relative z-10 flex items-center justify-between font-mono text-xs uppercase tracking-wideish text-ink-muted">
         <span className="text-ink-bright">TreasuryForge</span>
         <div className="flex items-center gap-6">
@@ -22,7 +46,7 @@ export default function Hero() {
         </div>
       </nav>
 
-      <div className="relative z-10 mt-16 grid gap-14 md:mt-24 md:grid-cols-[1.1fr_0.9fr] md:items-center md:gap-10">
+      <div className="relative z-10 grid flex-1 content-center gap-14 py-16 md:grid-cols-[1.1fr_0.9fr] md:items-center md:gap-10 md:py-0">
         <div>
           <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber">
             Built natively on TrueForge
