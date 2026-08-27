@@ -19,6 +19,17 @@ const SECRET = process.env.DASHBOARD_ACCESS_SECRET;
  * (see mcp-server's own README) rather than inventing a second, different
  * security model. Fails closed: an unset secret blocks every gated route
  * rather than silently leaving them open.
+ *
+ * Basic Auth alone is not enough on its own, though: unlike a SameSite
+ * cookie, the browser caches Basic Auth credentials per *origin* and
+ * resends them automatically on every request to that origin, regardless
+ * of which page triggered the request -- so a malicious page open in the
+ * same browser could still cross-site POST to /api/wallet/reset and have
+ * the browser attach valid, cached credentials on its own (verified: a
+ * cross-origin POST with a mismatched Origin header and otherwise-correct
+ * credentials succeeded before this check existed). State-mutating
+ * requests additionally require the Origin header, when the browser sends
+ * one, to match this app's own origin.
  */
 export function middleware(request) {
   if (!SECRET) {
@@ -27,6 +38,18 @@ export function middleware(request) {
         "destructive routes without it -- see frontend/.env.example.",
       { status: 500 }
     );
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const origin = request.headers.get("origin");
+    // Only reject a *mismatched* Origin, not a missing one -- CSRF relies
+    // on a browser automatically attaching cached credentials to a
+    // cross-site request; a non-browser client (curl, a script) has no
+    // such ambient credentials to exploit, so there's nothing to protect
+    // against there and blocking it would only break legitimate scripted use.
+    if (origin && origin !== request.nextUrl.origin) {
+      return new NextResponse("Cross-origin request rejected", { status: 403 });
+    }
   }
 
   const authHeader = request.headers.get("authorization") || "";
