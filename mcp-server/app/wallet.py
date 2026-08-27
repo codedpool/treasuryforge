@@ -2,6 +2,8 @@
 state -- every other module (pricing, seed) only reads or is read from here.
 """
 
+import math
+import threading
 from datetime import datetime, timezone
 
 from . import config, db, seed
@@ -10,6 +12,12 @@ from .pricing_equity import NSE_TICKERS, get_equity_price, market_open
 
 CRYPTO_ASSETS = ["BTC", "ETH"]
 TRADABLE_ASSETS = CRYPTO_ASSETS + NSE_TICKERS
+
+# Serializes the read-balances -> compute -> write sequence in execute_trade.
+# Each thread has its own sqlite connection (see db.py), so without this,
+# two overlapping trades could both read the same starting balance and one
+# write could clobber the other.
+_trade_lock = threading.Lock()
 
 
 def _ensure_seeded() -> None:
@@ -125,6 +133,10 @@ def execute_trade(
     if (quantity is None) == (usd_amount is None):
         raise ValueError("Provide exactly one of quantity or usd_amount")
 
+    amount: float = quantity if quantity is not None else usd_amount  # type: ignore[assignment]
+    if not math.isfinite(amount) or amount <= 0:
+        raise ValueError(f"quantity/usd_amount must be a finite positive number, got {amount}")
+
     if asset in NSE_TICKERS and not market_open():
         raise ValueError(
             f"NSE is closed (09:15-15:30 IST, weekdays). Cannot trade {asset} right now -- "
@@ -162,38 +174,39 @@ def execute_trade(
             "message": "DRY_RUN is on: this trade was priced and logged but not executed.",
         }
 
-    cash_row = conn.execute("SELECT quantity FROM holdings WHERE asset = 'CASH'").fetchone()
-    cash = cash_row["quantity"] if cash_row else 0.0
-    holding_row = conn.execute("SELECT quantity FROM holdings WHERE asset = ?", (asset,)).fetchone()
-    holding_qty = holding_row["quantity"] if holding_row else 0.0
+    with _trade_lock:
+        cash_row = conn.execute("SELECT quantity FROM holdings WHERE asset = 'CASH'").fetchone()
+        cash = cash_row["quantity"] if cash_row else 0.0
+        holding_row = conn.execute("SELECT quantity FROM holdings WHERE asset = ?", (asset,)).fetchone()
+        holding_qty = holding_row["quantity"] if holding_row else 0.0
 
-    if side == "buy":
-        if usd_value > cash + 1e-9:
-            raise ValueError(f"Insufficient cash: need ${usd_value:.2f}, have ${cash:.2f}")
-        new_cash = cash - usd_value
-        new_holding = holding_qty + quantity
-    else:
-        if quantity > holding_qty + 1e-9:
-            raise ValueError(f"Insufficient {asset}: trying to sell {quantity}, hold {holding_qty}")
-        new_cash = cash + usd_value
-        new_holding = holding_qty - quantity
+        if side == "buy":
+            if usd_value > cash + 1e-9:
+                raise ValueError(f"Insufficient cash: need ${usd_value:.2f}, have ${cash:.2f}")
+            new_cash = cash - usd_value
+            new_holding = holding_qty + quantity
+        else:
+            if quantity > holding_qty + 1e-9:
+                raise ValueError(f"Insufficient {asset}: trying to sell {quantity}, hold {holding_qty}")
+            new_cash = cash + usd_value
+            new_holding = holding_qty - quantity
 
-    conn.execute(
-        "INSERT INTO holdings (asset, quantity) VALUES ('CASH', ?) "
-        "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
-        (new_cash,),
-    )
-    conn.execute(
-        "INSERT INTO holdings (asset, quantity) VALUES (?, ?) "
-        "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
-        (asset, new_holding),
-    )
-    conn.execute(
-        "INSERT INTO transactions (timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
-        (now, asset, side, quantity, price_usd, usd_value, reason),
-    )
-    conn.commit()
+        conn.execute(
+            "INSERT INTO holdings (asset, quantity) VALUES ('CASH', ?) "
+            "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
+            (new_cash,),
+        )
+        conn.execute(
+            "INSERT INTO holdings (asset, quantity) VALUES (?, ?) "
+            "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
+            (asset, new_holding),
+        )
+        conn.execute(
+            "INSERT INTO transactions (timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+            (now, asset, side, quantity, price_usd, usd_value, reason),
+        )
+        conn.commit()
 
     return {
         "dry_run": False,

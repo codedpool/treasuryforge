@@ -67,12 +67,17 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # provider identifier is the well-known type ("google-gemini") or the
 # custom provider's own name ("groq").
 #
-# Defaults to the Flash model, not Pro: this project's Gemini key is on the
-# free tier, and Pro has a hard 0-request free-tier quota (confirmed via a
-# live 429 -- "limit: 0, model: gemini-3.1-pro" -- not a guess). Flash has
-# real free-tier headroom. Switch to google-gemini/gemini-pro once billing
-# is attached to the key.
-PRIMARY_MODEL_NAME = os.environ.get("PRIMARY_MODEL_NAME", "google-gemini/gemini-flash")
+# If GEMINI_API_KEY is present, this is google-gemini/gemini-flash, not
+# ...gemini-pro: this project's Gemini key is on the free tier, and Pro has
+# a hard 0-request free-tier quota (confirmed via a live 429 -- "limit: 0,
+# model: gemini-3.1-pro" -- not a guess). Switch to google-gemini/gemini-pro
+# once billing is attached to the key.
+#
+# An explicit PRIMARY_MODEL_NAME env var always wins. Otherwise this is
+# resolved after registration against whichever provider(s) actually
+# succeeded (see resolve_primary_model_name) -- a Groq-only setup must not
+# silently default to an unregistered Gemini model.
+PRIMARY_MODEL_NAME_OVERRIDE = os.environ.get("PRIMARY_MODEL_NAME", "").strip() or None
 
 MCP_SERVER_NAME = "treasuryforge-wallet"
 # Trailing slash matters: POST /mcp 307-redirects to /mcp/ (Starlette mount
@@ -134,13 +139,10 @@ def _print_response(label: str, resp: httpx.Response) -> None:
         _safe_print(f"       {resp.text[:500]}")
 
 
-def register_gemini_provider() -> None:
+def register_gemini_provider() -> bool:
     if not GEMINI_API_KEY:
-        print(
-            "[SKIP] Gemini provider: GEMINI_API_KEY not set. "
-            f"{PRIMARY_MODEL_NAME} won't be available -- the agent can't be created without it."
-        )
-        return
+        print("[SKIP] Gemini provider: GEMINI_API_KEY not set.")
+        return False
     resp = httpx.put(
         f"{API}/settings/model-providers",
         json={
@@ -153,12 +155,13 @@ def register_gemini_provider() -> None:
         timeout=20.0,
     )
     _print_response(f"model provider (google-gemini: {[m['name'] for m in GEMINI_MODELS]})", resp)
+    return resp.status_code < 300
 
 
-def register_groq_provider() -> None:
+def register_groq_provider() -> bool:
     if not GROQ_API_KEY:
         print("[SKIP] Groq provider: GROQ_API_KEY not set.")
-        return
+        return False
     resp = httpx.put(
         f"{API}/settings/model-providers",
         json={
@@ -173,9 +176,25 @@ def register_groq_provider() -> None:
         timeout=20.0,
     )
     _print_response(f"model provider (groq: {[m['name'] for m in GROQ_MODELS]})", resp)
+    return resp.status_code < 300
 
 
-def register_mcp_server() -> None:
+def resolve_primary_model_name(gemini_ready: bool, groq_ready: bool) -> str | None:
+    """Which model.name the agent should reference, given what actually got
+    registered. An explicit PRIMARY_MODEL_NAME env var always wins (the
+    caller is responsible for making sure it matches a registered model);
+    otherwise prefer Gemini, fall back to Groq's first model, or None if
+    neither provider is available."""
+    if PRIMARY_MODEL_NAME_OVERRIDE:
+        return PRIMARY_MODEL_NAME_OVERRIDE
+    if gemini_ready:
+        return "google-gemini/gemini-flash"
+    if groq_ready:
+        return f"groq/{GROQ_MODELS[0]['name']}"
+    return None
+
+
+def register_mcp_server() -> bool:
     resp = httpx.put(
         f"{API}/settings/mcp-servers",
         json={
@@ -189,6 +208,7 @@ def register_mcp_server() -> None:
         timeout=20.0,
     )
     _print_response(f"MCP server ({MCP_SERVER_URL})", resp)
+    return resp.status_code < 300
 
 
 def register_sandbox_provider() -> bool:
@@ -213,16 +233,13 @@ def register_sandbox_provider() -> bool:
     return resp.status_code < 300
 
 
-def create_agent(sandbox_ready: bool) -> None:
-    if not GEMINI_API_KEY and not GROQ_API_KEY:
-        print("[SKIP] agent creation: no model provider registered.")
-        return
+def create_agent(model_name: str, sandbox_ready: bool) -> bool:
     resp = httpx.post(
         f"{API}/agents",
         json={
             "name": AGENT_NAME,
             "manifest": {
-                "model": {"name": PRIMARY_MODEL_NAME},
+                "model": {"name": model_name},
                 "instructions": AGENT_INSTRUCTIONS,
                 "config": {
                     "sandbox": {"enabled": sandbox_ready},
@@ -238,7 +255,18 @@ def create_agent(sandbox_ready: bool) -> None:
         },
         timeout=20.0,
     )
-    _print_response(f"agent ({AGENT_NAME})", resp)
+    if resp.status_code == 409:
+        # POST /agents is create-only (no upsert, unlike the other settings
+        # endpoints -- see difficulties.md), so re-running this script hits
+        # this every time after the first. That's expected, not a failure --
+        # this script promises to be safe to re-run, and re-registering the
+        # providers/MCP server above already picks up any credential changes
+        # even though the agent's own manifest (instructions, model) won't
+        # be updated by a re-run. Delete the agent first if you need that.
+        print(f"[OK] agent ({AGENT_NAME}): already exists, left as-is")
+        return True
+    _print_response(f"agent ({AGENT_NAME}, model={model_name})", resp)
+    return resp.status_code < 300
 
 
 def main() -> int:
@@ -248,11 +276,24 @@ def main() -> int:
         print(f"TrueForge not reachable at {TRUEFORGE_URL}. Start it first.")
         return 1
 
-    register_gemini_provider()
-    register_groq_provider()
-    register_mcp_server()
-    sandbox_ready = register_sandbox_provider()
-    create_agent(sandbox_ready)
+    gemini_ready = register_gemini_provider()
+    groq_ready = register_groq_provider()
+    mcp_ready = register_mcp_server()
+    sandbox_ready = register_sandbox_provider()  # optional (Phase 2) -- not required for success
+
+    if not mcp_ready:
+        print("[FATAL] wallet MCP server registration failed -- see above.")
+        return 1
+
+    model_name = resolve_primary_model_name(gemini_ready, groq_ready)
+    if model_name is None:
+        print("[FATAL] no model provider registered -- set GEMINI_API_KEY or GROQ_API_KEY.")
+        return 1
+
+    if not create_agent(model_name, sandbox_ready):
+        print("[FATAL] agent creation failed -- see above.")
+        return 1
+
     return 0
 
 

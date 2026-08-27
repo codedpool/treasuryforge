@@ -92,4 +92,4 @@ async def debug_reset():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(api, host="0.0.0.0", port=config.PORT)
+    uvicorn.run(api, host=config.HOST, port=config.PORT)

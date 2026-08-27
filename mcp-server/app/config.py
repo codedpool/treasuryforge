@@ -9,6 +9,12 @@ APP_DIR = Path(__file__).resolve().parent
 MCP_SERVER_DIR = APP_DIR.parent
 
 PORT = int(os.environ.get("PORT", "4001"))
+# Localhost-only by default: execute_trade and /debug/reset have no auth of
+# their own (TrueForge's approval checkpoint and DRY_RUN are the intended
+# safety net -- see README), so this must not be reachable from other
+# machines on the network. Only widen this if TrueForge runs on a different
+# host than this server.
+HOST = os.environ.get("HOST", "127.0.0.1")
 
 DRY_RUN = os.environ.get("DRY_RUN", "true").strip().lower() not in ("false", "0", "no")
 

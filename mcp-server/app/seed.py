@@ -42,6 +42,13 @@ def seed_wallet() -> None:
     if is_initialized():
         return
 
+    # Fetch every price up front, before writing anything. If a quote call
+    # fails partway through, we want to fail with nothing written rather
+    # than leave partial holdings/transactions rows that a retry would then
+    # duplicate (is_initialized() only flips true at the very end).
+    crypto_prices = get_crypto_prices(list(CRYPTO_SPLIT))
+    equity_quotes = {symbol: get_equity_price(symbol) for symbol in NSE_TICKERS}
+
     conn = db.get_conn()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -61,7 +68,6 @@ def seed_wallet() -> None:
     )
 
     # Crypto
-    crypto_prices = get_crypto_prices(list(CRYPTO_SPLIT))
     for symbol, weight in CRYPTO_SPLIT.items():
         usd_target = TARGET_ALLOCATION_USD["crypto"] * weight
         price_usd = crypto_prices[symbol]["price_usd"]
@@ -76,8 +82,7 @@ def seed_wallet() -> None:
     # Equities: equal split across the fixed universe
     equity_usd_each = TARGET_ALLOCATION_USD["equity"] / len(NSE_TICKERS)
     for symbol in NSE_TICKERS:
-        quote = get_equity_price(symbol)
-        price_usd = quote["price_usd"]
+        price_usd = equity_quotes[symbol]["price_usd"]
         quantity = equity_usd_each / price_usd
         insert_holding(symbol, quantity)
         conn.execute(
