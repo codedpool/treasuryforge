@@ -354,7 +354,9 @@ Both the wallet server's logic and `scripts/setup_trueforge.py`'s pure
 functions have a pytest suite — 82 tests, none requiring network access or
 a running TrueForge/wallet instance (prices are mocked; SQLite runs against
 a throwaway per-test file, never the real dev `wallet.db`). Runs in CI
-(`.github/workflows/tests.yml`) on every push and PR.
+(`.github/workflows/tests.yml`) on every pull request and on every push to
+`main` — not on every push to every branch, to avoid a redundant second run
+for commits an open PR's own check already covers.
 
 ```bash
 cd mcp-server && pip install -r requirements-dev.txt && pytest
@@ -371,10 +373,6 @@ these tests found real bugs while being written — not just confirmed
 existing behavior — including a Sharpe-ratio edge case where near-zero
 floating-point variance (not exactly zero) produced a meaningless
 enormous ratio instead of the `None` a flat equity curve should report.
-
-Runs in CI on every pull request and on every push to `main` — not on
-every push to every branch (avoids a redundant second run for commits
-already covered by an open PR's own check).
 
 ## Debug / demo-only endpoints
 
