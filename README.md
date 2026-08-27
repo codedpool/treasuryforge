@@ -253,11 +253,18 @@ python -m venv .venv
 cp .env.example .env   # defaults work as-is; nothing is required to start
 ```
 
-**Windows:**
+**Windows (PowerShell):**
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m app.server
+```
+
+**Windows (Git Bash):**
 
 ```bash
-.venv/Scripts/pip install -r requirements.txt
-.venv/Scripts/python -m app.server
+.venv/Scripts/python.exe -m pip install -r requirements.txt
+.venv/Scripts/python.exe -m app.server
 ```
 
 **Linux/macOS:**
