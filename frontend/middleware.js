@@ -28,9 +28,37 @@ const SECRET = process.env.DASHBOARD_ACCESS_SECRET;
  * the browser attach valid, cached credentials on its own (verified: a
  * cross-origin POST with a mismatched Origin header and otherwise-correct
  * credentials succeeded before this check existed). State-mutating
- * requests additionally require the Origin header, when the browser sends
- * one, to match this app's own origin.
+ * requests require the Origin header to match this app's own origin;
+ * if Origin is absent, fall back to validating Referer; if *neither*
+ * trustworthy header is present, the request is rejected rather than
+ * allowed through -- OWASP's own CSRF guidance calls out exactly this
+ * fallback chain, and an initial cut of this check let a missing Origin
+ * through unconditionally (a real Qodo finding on that first cut). This
+ * does mean a bare curl/script call with no Origin or Referer now needs
+ * one added explicitly (e.g. `-H "Origin: http://localhost:3000"`) --
+ * accepted deliberately, since the alternative is a real bypass on the
+ * one class of endpoint (destructive wallet operations) where it matters.
  */
+function isTrustedSourceOrigin(request) {
+  const sameOrigin = request.nextUrl.origin;
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    return origin === sameOrigin;
+  }
+
+  const referer = request.headers.get("referer");
+  if (referer) {
+    try {
+      return new URL(referer).origin === sameOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  return false; // neither header present -- fail closed, not open
+}
+
 export function middleware(request) {
   if (!SECRET) {
     return new NextResponse(
@@ -40,16 +68,12 @@ export function middleware(request) {
     );
   }
 
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    const origin = request.headers.get("origin");
-    // Only reject a *mismatched* Origin, not a missing one -- CSRF relies
-    // on a browser automatically attaching cached credentials to a
-    // cross-site request; a non-browser client (curl, a script) has no
-    // such ambient credentials to exploit, so there's nothing to protect
-    // against there and blocking it would only break legitimate scripted use.
-    if (origin && origin !== request.nextUrl.origin) {
-      return new NextResponse("Cross-origin request rejected", { status: 403 });
-    }
+  if (request.method !== "GET" && request.method !== "HEAD" && !isTrustedSourceOrigin(request)) {
+    return new NextResponse(
+      "Cross-site request rejected -- no matching Origin or Referer header. Add one explicitly " +
+        'if this is a legitimate script (e.g. -H "Origin: <this app\'s URL>").',
+      { status: 403 }
+    );
   }
 
   const authHeader = request.headers.get("authorization") || "";
