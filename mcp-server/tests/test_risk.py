@@ -54,6 +54,76 @@ def test_force_daily_drawdown_breach_margin(seeded_wallet):
     assert result["forced"] is True
 
 
+def test_concentration_breach_via_force_trigger(seeded_wallet):
+    risk.force_concentration_breach("BTC")
+    result = risk.check_risk_limits("BTC", "buy", usd_amount=1)
+    assert result["triggers"]["concentration"]["breached"] is True
+    assert result["triggers"]["concentration"]["projected_pct"] > 50.0
+    assert result["any_breach"] is True
+
+
+def test_force_concentration_breach_margin(seeded_wallet):
+    result = risk.force_concentration_breach("BTC", margin_pct=5.0)
+    assert result["synthetic_concentration_pct"] == pytest.approx(55.0)
+    assert result["forced"] is True
+    assert result["asset"] == "BTC"
+
+
+def test_force_concentration_breach_rejects_unknown_asset(seeded_wallet):
+    with pytest.raises(ValueError, match="Unknown tradable asset"):
+        risk.force_concentration_breach("DOGE")
+
+
+def test_sell_all_breach_via_force_trigger(seeded_wallet):
+    forced = risk.force_sell_all_breach("BTC", quantity=0.05)
+    result = risk.check_risk_limits("BTC", "sell", quantity=forced["holding_quantity"])
+    assert result["triggers"]["sell_all"]["breached"] is True
+    assert result["any_breach"] is True
+
+
+def test_force_sell_all_breach_rejects_bad_quantity(seeded_wallet):
+    with pytest.raises(ValueError, match="finite positive"):
+        risk.force_sell_all_breach("BTC", quantity=0)
+
+
+def test_force_sell_all_breach_rejects_unknown_asset(seeded_wallet):
+    with pytest.raises(ValueError, match="Unknown tradable asset"):
+        risk.force_sell_all_breach("DOGE", quantity=1)
+
+
+def test_consecutive_losses_breach_via_force_trigger(seeded_wallet):
+    forced = risk.force_consecutive_losses_breach()
+    assert forced["synthetic_losing_sells"] == risk.CONSECUTIVE_LOSS_LIMIT + 1
+
+    result = risk.check_risk_limits("ETH", "buy", usd_amount=50)
+    assert result["triggers"]["consecutive_losses"]["streak"] == risk.CONSECUTIVE_LOSS_LIMIT + 1
+    assert result["triggers"]["consecutive_losses"]["breached"] is True
+    assert result["any_breach"] is True
+
+
+def test_force_consecutive_losses_breach_custom_count(seeded_wallet):
+    forced = risk.force_consecutive_losses_breach(count=5)
+    assert forced["synthetic_losing_sells"] == 5
+    assert risk.consecutive_losses() == 5
+
+
+def test_force_consecutive_losses_breach_does_not_corrupt_real_cost_basis(clean_btc_cost_basis):
+    # The synthetic losses live under an isolated 'DEMO_LOSS' ticker -- a
+    # real BTC trade made afterward must still see the clean cost basis
+    # clean_btc_cost_basis set up, unaffected by the forced streak.
+    risk.force_consecutive_losses_breach()
+    wallet.execute_trade("BTC", "buy", quantity=1.0, price_usd=100.0)
+    wallet.execute_trade("BTC", "sell", quantity=1.0, price_usd=90.0)  # real loss: -10
+
+    pnl_series, _ = wallet.realized_pnl_and_cost_basis()
+    assert pnl_series[-1] == pytest.approx(-10.0)
+
+
+def test_force_consecutive_losses_breach_rejects_bad_count(seeded_wallet):
+    with pytest.raises(ValueError, match="at least 1"):
+        risk.force_consecutive_losses_breach(count=0)
+
+
 def test_consecutive_losses_breach(seeded_wallet, live_trading):
     # Three real losing sells in a row (avg cost 100, sold below it each time).
     wallet.execute_trade("BTC", "buy", quantity=3.0, price_usd=100.0)
