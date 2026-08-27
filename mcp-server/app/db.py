@@ -46,13 +46,26 @@ _MIGRATIONS = (
     ("transactions", "risk_snapshot", "ALTER TABLE transactions ADD COLUMN risk_snapshot TEXT"),
 )
 
+# Each thread opens its own connection on first use (see get_conn), and
+# every one of those first-connections runs _run_migrations. Without a
+# process-wide lock, two threads' first connections can both see a column
+# missing (PRAGMA table_info) before either has run its ALTER TABLE, and
+# the second ALTER then fails with "duplicate column name" -- a real Qodo
+# finding, reproducible on a fresh process under concurrent early requests.
+_migration_lock = threading.Lock()
+
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    for table, column, ddl in _MIGRATIONS:
-        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in existing:
-            conn.execute(ddl)
-    conn.commit()
+    with _migration_lock:
+        for table, column, ddl in _MIGRATIONS:
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                try:
+                    conn.execute(ddl)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc):
+                        raise
+        conn.commit()
 
 
 def get_conn() -> sqlite3.Connection:
