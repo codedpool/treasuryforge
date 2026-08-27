@@ -16,6 +16,15 @@ PORT = int(os.environ.get("PORT", "4001"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 
 
+def _write_secret(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)  # owner read/write only -- no-op-ish on Windows, real on Linux/Mac
+    except OSError:
+        pass
+
+
 def _load_or_create_shared_secret() -> str:
     # Binding to localhost only stops *remote* callers; it does nothing
     # about another local process calling execute_trade directly and
@@ -28,15 +37,28 @@ def _load_or_create_shared_secret() -> str:
     #
     # Auto-generated and persisted on first run so this stays zero-config;
     # override with WALLET_SHARED_SECRET to pin it (e.g. across a reset).
+    # Always kept in sync with data/.wallet_secret regardless of source
+    # (env var or generated), since scripts/setup_trueforge.py only reads
+    # that file -- an env-only value it can't see would make registration
+    # fail with "no shared secret found" (another real Qodo finding).
+    secret_path = MCP_SERVER_DIR / "data" / ".wallet_secret"
+
     env_value = os.environ.get("WALLET_SHARED_SECRET", "").strip()
     if env_value:
+        _write_secret(secret_path, env_value)
         return env_value
-    secret_path = MCP_SERVER_DIR / "data" / ".wallet_secret"
+
     if secret_path.exists():
-        return secret_path.read_text(encoding="utf-8").strip()
-    secret_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = secret_path.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+        # Empty/whitespace-only file (e.g. an interrupted write): the auth
+        # middleware compares a missing header's "" default against this
+        # value, so an empty secret would silently disable authentication
+        # entirely. Treat it as absent and regenerate below.
+
     value = secrets.token_urlsafe(32)
-    secret_path.write_text(value, encoding="utf-8")
+    _write_secret(secret_path, value)
     return value
 
 

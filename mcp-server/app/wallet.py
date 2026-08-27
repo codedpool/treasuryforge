@@ -13,16 +13,19 @@ from .pricing_equity import NSE_TICKERS, get_equity_price, market_open
 CRYPTO_ASSETS = ["BTC", "ETH"]
 TRADABLE_ASSETS = CRYPTO_ASSETS + NSE_TICKERS
 
-# Serializes the read-balances -> compute -> write sequence in execute_trade.
-# Each thread has its own sqlite connection (see db.py), so without this,
-# two overlapping trades could both read the same starting balance and one
-# write could clobber the other.
+# Serializes every operation that mutates wallet state: trades, the first
+# seed, and reset/reseed. Each thread has its own sqlite connection (see
+# db.py), so without this, two overlapping calls could read the same
+# starting state and one write could clobber the other -- e.g. a reset
+# racing a trade, or two first requests both seeding (seed_wallet() is
+# idempotent on its own, but only once serialized; see difficulties.md).
 _trade_lock = threading.Lock()
 
 
 def _ensure_seeded() -> None:
     if not seed.is_initialized():
-        seed.seed_wallet()
+        with _trade_lock:
+            seed.seed_wallet()
 
 
 def _price_usd(asset: str) -> dict:
@@ -223,5 +226,6 @@ def execute_trade(
 
 
 def reset_wallet() -> dict:
-    seed.reset_and_reseed()
+    with _trade_lock:
+        seed.reset_and_reseed()
     return get_portfolio()
