@@ -24,7 +24,11 @@ instance (default http://localhost:8790):
      only if the agent actually requests a sandbox at all -- see
      create_agent's comment for why this must not be tied to Daytona's own
      registration success.
-  5. The "treasury-agent" agent itself, referencing PRIMARY_MODEL_NAME.
+  5. The "treasury-agent" agent itself, referencing PRIMARY_MODEL_NAME --
+     created if it doesn't exist, or its manifest (instructions/model/
+     config) updated in place if it does, so re-running this after an
+     instructions change (like Phase 3's self-audit section) actually
+     reaches an already-existing agent instead of leaving it stale.
 
 Every endpoint/schema this script calls was verified against
 https://trueforge.dev/api-reference before writing this -- see
@@ -171,17 +175,22 @@ your own initiative if it has been a while since the last one and several \
 new trades have happened, delegate it to a sub-agent via create_sub_agent \
 -- do not do this analysis yourself inline. It has no access to this \
 conversation, so give it a fully self-contained task: review the last 20 \
-decisions via get_transaction_log (each carries a risk_snapshot with the \
-actual computed daily_drawdown/consecutive_losses/concentration numbers \
-from that moment, not a guess), pull get_wallet_metrics for realized/ \
-unrealized P&L, win rate, max drawdown, and Sharpe, then run exactly ONE \
-sandbox script that backtests an alternative daily-drawdown threshold \
-(e.g. 7% instead of the current 5%) against the risk_snapshot data already \
-fetched -- no network calls needed, it's all in that data -- and reports \
-how many decisions would have been flagged differently. Ask it to return a \
-concise summary: current performance, how many decisions breached the \
-current threshold vs. the alternative, and one or two concrete rule- \
-adjustment suggestions with that backtest evidence attached. Present its \
+decisions via get_transaction_log. Not every entry has a risk_snapshot -- \
+seed rows and any trade made before this field existed carry \
+risk_snapshot=null -- so it must skip those, backtest only the entries that \
+do have one, and state how many of the 20 it actually had usable risk data \
+for rather than assuming all 20. For the ones with a snapshot (the actual \
+computed daily_drawdown/consecutive_losses/concentration numbers from that \
+moment, not a guess), pull get_wallet_metrics for realized/unrealized P&L, \
+win rate, max drawdown, and Sharpe, then run exactly ONE sandbox script \
+that backtests an alternative daily-drawdown threshold (e.g. 7% instead of \
+the current 5%) against the risk_snapshot data already fetched -- no \
+network calls needed, it's all in that data -- and reports how many \
+decisions would have been flagged differently. Ask it to return a concise \
+summary: current performance, the usable sample size, how many decisions \
+breached the current threshold vs. the alternative, and one or two \
+concrete rule-adjustment suggestions with that backtest evidence attached. \
+Present its \
 returned summary to the user as-is.
 """
 
@@ -300,47 +309,64 @@ def register_sandbox_provider() -> bool:
     return resp.status_code < 300
 
 
+def _agent_manifest(model_name: str) -> dict:
+    return {
+        "model": {"name": model_name},
+        "instructions": AGENT_INSTRUCTIONS,
+        "config": {
+            # Always requested, independent of whether Daytona registration
+            # succeeded above. TrueForge's own gate is spec.config.sandbox.enabled
+            # (verified in the vendored dist): if false, it never even attempts a
+            # sandbox, Daytona or otherwise. When Daytona isn't ready, TrueForge
+            # falls back to its built-in local (bubblewrap) provider on its own --
+            # tying this flag to Daytona's success would silently disable that
+            # fallback on exactly the host (WSL2) where it's the *only* sandbox
+            # path that works -- see difficulties.md.
+            "sandbox": {"enabled": True},
+            "dynamic_sub_agents": {"enabled": True},
+        },
+        "mcp_servers": [
+            {
+                "name": MCP_SERVER_NAME,
+                "require_approval_for_tools": ["execute_trade"],
+            }
+        ],
+    }
+
+
 def create_agent(model_name: str) -> bool:
+    manifest = _agent_manifest(model_name)
     resp = httpx.post(
         f"{API}/agents",
-        json={
-            "name": AGENT_NAME,
-            "manifest": {
-                "model": {"name": model_name},
-                "instructions": AGENT_INSTRUCTIONS,
-                "config": {
-                    # Always requested, independent of whether Daytona registration
-                    # succeeded above. TrueForge's own gate is spec.config.sandbox.enabled
-                    # (verified in the vendored dist): if false, it never even attempts a
-                    # sandbox, Daytona or otherwise. When Daytona isn't ready, TrueForge
-                    # falls back to its built-in local (bubblewrap) provider on its own --
-                    # tying this flag to Daytona's success would silently disable that
-                    # fallback on exactly the host (WSL2) where it's the *only* sandbox
-                    # path that works -- see difficulties.md.
-                    "sandbox": {"enabled": True},
-                    "dynamic_sub_agents": {"enabled": True},
-                },
-                "mcp_servers": [
-                    {
-                        "name": MCP_SERVER_NAME,
-                        "require_approval_for_tools": ["execute_trade"],
-                    }
-                ],
-            },
-        },
+        json={"name": AGENT_NAME, "manifest": manifest},
         timeout=20.0,
     )
     if resp.status_code == 409:
         # POST /agents is create-only (no upsert, unlike the other settings
-        # endpoints -- see difficulties.md), so re-running this script hits
-        # this every time after the first. That's expected, not a failure --
-        # this script promises to be safe to re-run, and re-registering the
-        # providers/MCP server above already picks up any credential changes
-        # even though the agent's own manifest (instructions, model) won't
-        # be updated by a re-run. Delete the agent first if you need that.
-        print(f"[OK] agent ({AGENT_NAME}): already exists, left as-is")
-        return True
-    _print_response(f"agent ({AGENT_NAME}, model={model_name})", resp)
+        # endpoints), but PUT /agents/{id} does update an existing agent's
+        # manifest -- so re-running this script now genuinely re-applies
+        # instructions/model/config changes to an already-existing agent
+        # instead of silently leaving it on whatever it had at creation
+        # time. That used to require deleting the agent by hand first (a
+        # real Qodo finding: an existing Phase 1/2 installation would never
+        # pick up Phase 3's self-audit instructions otherwise). Look the
+        # agent up by name to get its server-generated id -- PUT is keyed
+        # on id, not name.
+        list_resp = httpx.get(f"{API}/agents", timeout=10.0)
+        if list_resp.status_code >= 300:
+            _print_response(f"agent ({AGENT_NAME}): lookup for update", list_resp)
+            return False
+        agent_id = next(
+            (a["id"] for a in list_resp.json().get("data", []) if a["name"] == AGENT_NAME),
+            None,
+        )
+        if agent_id is None:
+            print(f"[FAIL] agent ({AGENT_NAME}): got 409 on create but couldn't find it to update")
+            return False
+        put_resp = httpx.put(f"{API}/agents/{agent_id}", json={"manifest": manifest}, timeout=20.0)
+        _print_response(f"agent ({AGENT_NAME}, model={model_name}): updated existing", put_resp)
+        return put_resp.status_code < 300
+    _print_response(f"agent ({AGENT_NAME}, model={model_name}): created", resp)
     return resp.status_code < 300
 
 
