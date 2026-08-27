@@ -28,6 +28,9 @@ as plain REST):
   - GET /ui/transactions: wallet.get_transaction_log().
   - GET /ui/metrics: metrics.get_wallet_metrics().
   - GET /ui/risk-summary: risk.portfolio_risk_summary().
+  - GET /ui/equity-curve: metrics.get_equity_curve() -- timestamped points
+    for the dashboard's P&L chart (get_wallet_metrics only exposes a point
+    *count*, not the series itself).
 
 Debug-only routes (never on the live decision path -- see README):
   - POST /debug/reset: wipes and reseeds the wallet.
@@ -194,6 +197,11 @@ async def ui_metrics():
 @api.get("/ui/risk-summary")
 async def ui_risk_summary():
     return risk.portfolio_risk_summary()
+
+
+@api.get("/ui/equity-curve")
+async def ui_equity_curve():
+    return metrics.get_equity_curve()
 
 
 @api.post("/debug/reset")

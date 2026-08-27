@@ -71,3 +71,22 @@ def test_get_wallet_metrics_win_rate_all_wins(clean_btc_cost_basis):
     wins = sum(1 for p in pnl_series if p > 0)
     result = metrics.get_wallet_metrics()
     assert result["win_rate"] == pytest.approx(wins / len(pnl_series))
+
+
+# --- get_equity_curve -------------------------------------------------
+
+def test_equity_curve_has_timestamps_and_a_trailing_now_point(seeded_wallet):
+    wallet.get_portfolio()  # records at least one snapshot (day-start rollover)
+    curve = metrics.get_equity_curve()
+
+    assert len(curve) >= 1
+    for point in curve:
+        assert "timestamp" in point and "total_usd" in point and "reason" in point
+    assert curve[-1]["reason"] == "now"
+
+
+def test_equity_curve_values_match_the_bare_series(seeded_wallet):
+    wallet.get_portfolio()
+    curve = metrics.get_equity_curve()
+    bare = metrics._equity_series()
+    assert [p["total_usd"] for p in curve] == bare
