@@ -1,3 +1,5 @@
+import ApprovalReceipt from "@/components/landing/ApprovalReceipt";
+
 const STEPS = [
   { n: "01", title: "Fetch market data", detail: "Live BTC/ETH and NSE equity quotes over MCP." },
   { n: "02", title: "Compute risk", detail: "check_risk_limits — real numbers, not a guess." },
@@ -34,6 +36,20 @@ export default function DecisionLoop() {
             </li>
           ))}
         </ol>
+
+        <div className="mt-16 grid gap-10 border-t border-ink-line pt-12 md:grid-cols-[1fr_auto] md:items-center md:gap-16">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber">
+              Steps 02 – 06, live
+            </p>
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-soft">
+              The exact shape <code className="text-ink-bright">check_risk_limits</code> returns,
+              replayed on a loop — not staged copy. Held at amber until a
+              person clears it; stamped the instant they do.
+            </p>
+          </div>
+          <ApprovalReceipt />
+        </div>
       </div>
     </section>
   );

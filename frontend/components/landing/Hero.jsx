@@ -1,6 +1,5 @@
 import Image from "next/image";
 import Link from "next/link";
-import ApprovalReceipt from "@/components/landing/ApprovalReceipt";
 
 export default function Hero() {
   return (
@@ -74,10 +73,6 @@ export default function Hero() {
               See the decision loop
             </a>
           </div>
-        </div>
-
-        <div className="flex justify-center md:justify-end">
-          <ApprovalReceipt />
         </div>
       </div>
     </section>
