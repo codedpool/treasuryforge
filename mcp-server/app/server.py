@@ -6,14 +6,22 @@ https://trueforge.dev/mcp-servers for the registration side, and
 scripts/setup_trueforge.py in the repo root for how this gets registered.
 
 Tool surface:
-  - get_portfolio, get_transaction_log, get_crypto_price, get_equity_price:
-    read-only.
+  - get_portfolio, get_transaction_log, get_crypto_price, get_equity_price,
+    check_risk_limits: read-only.
   - execute_trade: the only tool that writes wallet state. Register it with
     require_approval_for_tools on the TrueForge side so every trade pauses
-    for a human checkpoint -- see setup_trueforge.py.
+    for a human checkpoint -- see setup_trueforge.py. TrueForge's checkpoint
+    is unconditional (every call pauses, it has no notion of "only if this
+    breaches a limit" -- see risk.py's module docstring), so check_risk_limits
+    is what turns the plan's four risk triggers into real computed numbers
+    the agent must fetch and cite in `reason` before proposing a trade,
+    rather than TrueForge enforcing them itself.
 
 Debug-only routes (never on the live decision path -- see README):
   - POST /debug/reset: wipes and reseeds the wallet.
+  - POST /debug/trigger-approval: synthesizes a daily-drawdown breach so a
+    demo can reliably show the approval gate firing over a real computed
+    number on cue. Never called from the agent's own decision loop.
   - GET /health: liveness check.
 
 Every route except /health requires the X-Wallet-Secret header (see
@@ -30,7 +38,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 
-from . import config, wallet
+from . import config, risk, wallet
 from .pricing_crypto import get_crypto_price as _get_crypto_price
 from .pricing_equity import get_equity_price as _get_equity_price
 
@@ -62,6 +70,25 @@ def get_equity_price(symbol: str) -> dict:
     for an NSE equity symbol, e.g. RELIANCE.NS. market_open is false outside
     09:15-15:30 IST on weekdays -- do not propose new equity trades then."""
     return _get_equity_price(symbol)
+
+
+@mcp.tool
+def check_risk_limits(
+    asset: str,
+    side: str,
+    quantity: float | None = None,
+    usd_amount: float | None = None,
+) -> dict:
+    """Computed check of whether a proposed trade would breach a risk limit:
+    daily drawdown > 5%, more than 2 consecutive losing trades, resulting
+    single-asset allocation > 50%, or selling an entire position. Call this
+    with the exact same arguments you're about to pass to execute_trade,
+    before proposing it -- cite these numbers (not a guess) in execute_trade's
+    reason. Read-only; does not affect approval routing (execute_trade always
+    pauses for approval regardless of this result) but if any_breach is true
+    you must run a sandbox cross-asset stress test first and cite its
+    resulting drawdown number too."""
+    return risk.check_risk_limits(asset=asset, side=side, quantity=quantity, usd_amount=usd_amount)
 
 
 @mcp.tool
@@ -107,6 +134,16 @@ async def debug_reset():
     from the agent's own decision loop; see README for why this exists."""
     result = wallet.reset_wallet()
     return {"reset": True, "portfolio": result}
+
+
+@api.post("/debug/trigger-approval")
+async def debug_trigger_approval():
+    """Demo/testing only -- synthesizes a daily-drawdown breach (see
+    risk.force_daily_drawdown_breach) so the agent's next check_risk_limits
+    call reports a genuine breach, guaranteeing the approval gate has a real
+    computed number to fire on for a demo. Never called from the agent's own
+    decision loop; cleared by POST /debug/reset."""
+    return risk.force_daily_drawdown_breach()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 state -- every other module (pricing, seed) only reads or is read from here.
 """
 
+import json
 import math
 import threading
 from datetime import datetime, timezone
@@ -26,6 +27,47 @@ def _ensure_seeded() -> None:
     if not seed.is_initialized():
         with _trade_lock:
             seed.seed_wallet()
+
+
+def read_day_start() -> tuple[str | None, float | None]:
+    """(date, value_usd) of the current daily-drawdown baseline, or (None,
+    None) if it's never been set. Stored as one JSON meta value so a
+    concurrent reader can never observe today's date paired with a stale or
+    missing value -- two separate meta writes would leave exactly that
+    window open (a real Qodo finding on the first cut of this)."""
+    raw = db.get_meta("day_start")
+    if not raw:
+        return None, None
+    try:
+        data = json.loads(raw)
+        return data.get("date"), data.get("value_usd")
+    except (ValueError, TypeError):
+        return None, None
+
+
+def write_day_start(date_str: str, value_usd: float) -> None:
+    db.set_meta("day_start", json.dumps({"date": date_str, "value_usd": value_usd}))
+
+
+def _roll_day_start_if_needed(current_total_usd: float) -> float:
+    """Lazily snapshots the portfolio's total value as the "start of day"
+    baseline the first time it's checked on a new UTC calendar day, then
+    returns whatever the current baseline is. Called from get_portfolio --
+    not from risk.py's check_risk_limits -- specifically so the baseline gets
+    set on the *first portfolio read of the day* (every agent turn starts
+    with one) rather than only on the first risk check, which only happens
+    once the agent already has a concrete trade in mind and could be well
+    after an earlier same-day drop that would otherwise vanish from the
+    baseline entirely (another real Qodo finding on the first cut). There's
+    still no true midnight-UTC snapshot -- this is a paper wallet with no
+    scheduler -- so a drop before the very first read of the day is still
+    invisible; this only narrows that window, doesn't close it."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    stored_date, stored_value = read_day_start()
+    if stored_date != today:
+        write_day_start(today, current_total_usd)
+        return current_total_usd
+    return stored_value if stored_value is not None else current_total_usd
 
 
 def _price_usd(asset: str) -> dict:
@@ -97,6 +139,7 @@ def get_portfolio() -> dict:
         "cash_usd": cash,
         "positions": positions,
         "total_usd": total_usd,
+        "day_start_value_usd": _roll_day_start_if_needed(total_usd),
         "dry_run": config.DRY_RUN,
     }
 
