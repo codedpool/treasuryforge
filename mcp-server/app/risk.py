@@ -278,26 +278,29 @@ def force_consecutive_losses_breach(count: int | None = None) -> dict:
     or corrupt BTC/ETH/equity cost basis or unrealized P&L; consecutive_losses
     only cares about the tail of the combined realized-P&L series, not which
     asset each entry belongs to. Cleared by POST /debug/reset (wipes the
-    transaction log)."""
+    transaction log).
+
+    count must exceed CONSECUTIVE_LOSS_LIMIT: the trigger only breaches when
+    the streak is strictly greater than that limit, so a count at or below
+    it would report "forced: true" without actually forcing a breach (a
+    real Qodo finding)."""
     if count is None:
         count = CONSECUTIVE_LOSS_LIMIT + 1
-    if count < 1:
-        raise ValueError(f"count must be at least 1, got {count}")
+    if count <= CONSECUTIVE_LOSS_LIMIT:
+        raise ValueError(
+            f"count must be greater than CONSECUTIVE_LOSS_LIMIT ({CONSECUTIVE_LOSS_LIMIT}) "
+            f"to actually force a breach, got {count}"
+        )
 
     synthetic_asset = "DEMO_LOSS"
     unit_qty = 0.01
     cost_price = 100.0
     loss_price = 50.0
+    reason = "debug: force_consecutive_losses_breach"
 
-    wallet.record_synthetic_transaction(
-        synthetic_asset, "buy", unit_qty * count, cost_price,
-        "debug: force_consecutive_losses_breach",
-    )
-    for _ in range(count):
-        wallet.record_synthetic_transaction(
-            synthetic_asset, "sell", unit_qty, loss_price,
-            "debug: force_consecutive_losses_breach",
-        )
+    rows = [(synthetic_asset, "buy", unit_qty * count, cost_price, reason)]
+    rows += [(synthetic_asset, "sell", unit_qty, loss_price, reason) for _ in range(count)]
+    wallet.record_synthetic_transactions(rows)
 
     return {
         "forced": True,

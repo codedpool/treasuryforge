@@ -149,28 +149,35 @@ def set_concentrated_holding(asset: str, target_pct: float) -> dict:
     }
 
 
-def record_synthetic_transaction(asset: str, side: str, quantity: float, price_usd: float, reason: str) -> None:
-    """Inserts a transaction row directly (dry_run=0), skipping
-    execute_trade's cash/holdings mutation and validation entirely. Debug/
-    demo only: used by risk.py's force_consecutive_losses_breach to write a
-    realized-loss streak straight into the data realized_pnl_and_cost_basis
-    reads, which is otherwise nearly unreachable on demand -- a real losing
-    streak needs real losing live trades, and DRY_RUN sells are correctly
-    excluded from realized P&L. Never called from the agent's own decision
-    loop; asset is deliberately not validated against TRADABLE_ASSETS so
-    callers can use an isolated synthetic ticker that can't blend into any
-    real position's cost basis (see force_consecutive_losses_breach)."""
-    asset = asset.upper()
+def record_synthetic_transactions(rows: list[tuple[str, str, float, float, str]]) -> None:
+    """Inserts multiple transaction rows directly (dry_run=0) under a single
+    _trade_lock acquisition, skipping execute_trade's cash/holdings mutation
+    and validation entirely. Each row is (asset, side, quantity, price_usd,
+    reason). Debug/demo only: used by risk.py's force_consecutive_losses_breach
+    to write a realized-loss streak straight into the data
+    realized_pnl_and_cost_basis reads, which is otherwise nearly unreachable
+    on demand -- a real losing streak needs real losing live trades, and
+    DRY_RUN sells are correctly excluded from realized P&L. Writing the whole
+    sequence under one lock (rather than one acquisition per row) matters
+    because the streak these rows are meant to produce depends on them being
+    contiguous in the transaction table's id order -- a real concurrent trade
+    interleaving partway through would break that contiguity even if each
+    individual row insert were itself correct (a real Qodo finding). Never
+    called from the agent's own decision loop; asset is deliberately not
+    validated against TRADABLE_ASSETS so callers can use an isolated
+    synthetic ticker that can't blend into any real position's cost basis
+    (see force_consecutive_losses_breach)."""
     with _trade_lock:
         conn = db.get_conn()
         now = datetime.now(timezone.utc).isoformat()
-        usd_value = quantity * price_usd
-        conn.execute(
-            "INSERT INTO transactions "
-            "(timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
-            (now, asset, side, quantity, price_usd, usd_value, reason),
-        )
+        for asset, side, quantity, price_usd, reason in rows:
+            usd_value = quantity * price_usd
+            conn.execute(
+                "INSERT INTO transactions "
+                "(timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                (now, asset.upper(), side, quantity, price_usd, usd_value, reason),
+            )
         conn.commit()
 
 

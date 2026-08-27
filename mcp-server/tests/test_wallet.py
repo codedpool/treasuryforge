@@ -196,11 +196,11 @@ def test_set_holding_quantity_creates_a_holding_row_for_a_new_asset(isolated_db)
     assert row["quantity"] == pytest.approx(3.0)
 
 
-def test_record_synthetic_transaction_does_not_touch_holdings(seeded_wallet):
+def test_record_synthetic_transactions_does_not_touch_holdings(seeded_wallet):
     before = wallet.get_portfolio()
     holdings_before = {p["asset"]: p["quantity"] for p in before["positions"]}
 
-    wallet.record_synthetic_transaction("DEMO_LOSS", "sell", 0.01, 50.0, "test")
+    wallet.record_synthetic_transactions([("DEMO_LOSS", "sell", 0.01, 50.0, "test")])
 
     log = wallet.get_transaction_log(limit=1)
     assert log[0]["asset"] == "DEMO_LOSS"
@@ -210,6 +210,16 @@ def test_record_synthetic_transaction_does_not_touch_holdings(seeded_wallet):
     after = wallet.get_portfolio()
     holdings_after = {p["asset"]: p["quantity"] for p in after["positions"]}
     assert holdings_before == holdings_after
+
+
+def test_record_synthetic_transactions_writes_multiple_rows(seeded_wallet):
+    wallet.record_synthetic_transactions([
+        ("DEMO_LOSS", "buy", 0.02, 100.0, "test"),
+        ("DEMO_LOSS", "sell", 0.01, 50.0, "test"),
+        ("DEMO_LOSS", "sell", 0.01, 50.0, "test"),
+    ])
+    log = wallet.get_transaction_log(limit=3)
+    assert [entry["side"] for entry in reversed(log)] == ["buy", "sell", "sell"]
 
 
 # --- Day-start baseline --------------------------------------------------

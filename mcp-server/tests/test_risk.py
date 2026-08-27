@@ -152,9 +152,13 @@ def test_force_consecutive_losses_breach_does_not_corrupt_real_cost_basis(clean_
     assert pnl_series[-1] == pytest.approx(-10.0)
 
 
-def test_force_consecutive_losses_breach_rejects_bad_count(seeded_wallet):
-    with pytest.raises(ValueError, match="at least 1"):
-        risk.force_consecutive_losses_breach(count=0)
+@pytest.mark.parametrize("bad_count", [0, 1, 2, -1])
+def test_force_consecutive_losses_breach_rejects_counts_that_would_not_breach(seeded_wallet, bad_count):
+    # A count at or below CONSECUTIVE_LOSS_LIMIT (2) would report "forced:
+    # true" without the streak actually exceeding the trigger's own > 2
+    # condition -- a real Qodo finding.
+    with pytest.raises(ValueError, match="greater than CONSECUTIVE_LOSS_LIMIT"):
+        risk.force_consecutive_losses_breach(count=bad_count)
 
 
 def test_consecutive_losses_breach(seeded_wallet, live_trading):
