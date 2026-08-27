@@ -372,6 +372,10 @@ existing behavior — including a Sharpe-ratio edge case where near-zero
 floating-point variance (not exactly zero) produced a meaningless
 enormous ratio instead of the `None` a flat equity curve should report.
 
+Runs in CI on every pull request and on every push to `main` — not on
+every push to every branch (avoids a redundant second run for commits
+already covered by an open PR's own check).
+
 ## Debug / demo-only endpoints
 
 Never called from the agent's own decision loop — for local testing and

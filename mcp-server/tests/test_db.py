@@ -29,13 +29,40 @@ def test_migration_is_idempotent(isolated_db):
     assert cols.count("risk_snapshot") == 1
 
 
-def test_migration_tolerates_duplicate_column_race(isolated_db):
-    # Simulates two threads both deciding the column is missing before
-    # either has added it -- the second ALTER TABLE call should not crash
-    # _run_migrations.
-    with pytest.raises(sqlite3.OperationalError):
-        isolated_db.execute("ALTER TABLE transactions ADD COLUMN risk_snapshot TEXT")
-    db._run_migrations(isolated_db)  # must not raise
+def test_migration_tolerates_duplicate_column_race():
+    # A prior test using isolated_db (already migrated by that fixture)
+    # can't actually exercise this: _run_migrations' own PRAGMA check would
+    # correctly see the column present and skip the ALTER entirely, never
+    # reaching the except branch this test claims to cover (a real Qodo
+    # finding). Build a raw connection instead: the column is genuinely
+    # already there (as if another thread's connection just added it), but
+    # PRAGMA table_info is made to report it missing -- the same stale read
+    # two racing first-connections would each see -- so _run_migrations
+    # actually attempts its own ALTER TABLE and has to survive the real
+    # "duplicate column name" OperationalError that produces.
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(db.SCHEMA)
+    conn.execute("ALTER TABLE transactions ADD COLUMN risk_snapshot TEXT")
+    conn.commit()
+
+    class StaleReadConnection:
+        """sqlite3.Connection.execute is read-only (a C extension type) --
+        can't monkeypatch it directly, so wrap it instead. _run_migrations
+        only ever calls .execute() and .commit(), so that's all this needs
+        to forward."""
+
+        def execute(self, sql, *args, **kwargs):
+            cursor = conn.execute(sql, *args, **kwargs)
+            if sql.strip().upper().startswith("PRAGMA TABLE_INFO"):
+                return [r for r in cursor.fetchall() if r["name"] != "risk_snapshot"]
+            return cursor
+
+        def commit(self):
+            conn.commit()
+
+    db._run_migrations(StaleReadConnection())  # must not raise despite the ALTER TABLE it attempts failing
+    conn.close()
 
 
 def test_meta_roundtrip(isolated_db):
