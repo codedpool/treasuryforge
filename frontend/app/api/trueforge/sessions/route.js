@@ -12,9 +12,16 @@ const TRUEFORGE_URL = (process.env.TRUEFORGE_URL || "http://127.0.0.1:8790").rep
  * approve/reject affordance) for acting on a pending checkpoint. See
  * components/dashboard/ApprovalQueue.jsx.
  */
+// See lib/walletProxy.js's identical comment -- a stalled (not just
+// refused) upstream would otherwise hang this request indefinitely.
+const TRUEFORGE_FETCH_TIMEOUT_MS = 10_000;
+
 export async function GET() {
   try {
-    const res = await fetch(`${TRUEFORGE_URL}/api/v1/sessions`, { cache: "no-store" });
+    const res = await fetch(`${TRUEFORGE_URL}/api/v1/sessions`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(TRUEFORGE_FETCH_TIMEOUT_MS),
+    });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       return NextResponse.json({ error: "trueforge_error", status: res.status }, { status: res.status });
