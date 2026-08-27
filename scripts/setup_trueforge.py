@@ -84,6 +84,26 @@ MCP_SERVER_NAME = "treasuryforge-wallet"
 # behavior), and not every HTTP client follows a 307 redirect on POST.
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:4001/mcp/")
 
+
+def _load_wallet_shared_secret() -> str | None:
+    """Same value the wallet server checks on every request but /health (see
+    mcp-server/app/config.py) -- passed to TrueForge as header auth so it's
+    the only caller that can actually invoke execute_trade. Only reads the
+    server's generated secret file; doesn't create one -- the server must
+    already be running (this script's own precondition) so it's the source
+    of truth for generating it."""
+    env_value = os.environ.get("WALLET_SHARED_SECRET", "").strip()
+    if env_value:
+        return env_value
+    secret_path = os.path.join(os.path.dirname(__file__), "..", "mcp-server", "data", ".wallet_secret")
+    if os.path.exists(secret_path):
+        with open(secret_path, encoding="utf-8") as f:
+            return f.read().strip()
+    return None
+
+
+WALLET_SHARED_SECRET = _load_wallet_shared_secret()
+
 DAYTONA_API_KEY = os.environ.get("DAYTONA_API_KEY", "").strip()
 DAYTONA_EXEC_TIMEOUT_MS = int(os.environ.get("DAYTONA_EXEC_TIMEOUT_MS", "10000"))
 # Despite the docs describing these as accepting "0 to disable", the API
@@ -195,18 +215,21 @@ def resolve_primary_model_name(gemini_ready: bool, groq_ready: bool) -> str | No
 
 
 def register_mcp_server() -> bool:
-    resp = httpx.put(
-        f"{API}/settings/mcp-servers",
-        json={
-            "manifest": {
-                "type": "remote",
-                "name": MCP_SERVER_NAME,
-                "url": MCP_SERVER_URL,
-                "description": "Paper wallet + crypto/NSE equity market data for TreasuryForge.",
-            }
-        },
-        timeout=20.0,
-    )
+    if not WALLET_SHARED_SECRET:
+        print(
+            "[FAIL] wallet MCP server: no shared secret found at "
+            "mcp-server/data/.wallet_secret -- start the wallet server first "
+            "(it generates this on first run), or set WALLET_SHARED_SECRET."
+        )
+        return False
+    manifest = {
+        "type": "remote",
+        "name": MCP_SERVER_NAME,
+        "url": MCP_SERVER_URL,
+        "description": "Paper wallet + crypto/NSE equity market data for TreasuryForge.",
+        "auth": {"type": "header", "headers": {"X-Wallet-Secret": WALLET_SHARED_SECRET}},
+    }
+    resp = httpx.put(f"{API}/settings/mcp-servers", json={"manifest": manifest}, timeout=20.0)
     _print_response(f"MCP server ({MCP_SERVER_URL})", resp)
     return resp.status_code < 300
 

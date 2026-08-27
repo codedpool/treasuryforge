@@ -15,9 +15,19 @@ Tool surface:
 Debug-only routes (never on the live decision path -- see README):
   - POST /debug/reset: wipes and reseeds the wallet.
   - GET /health: liveness check.
+
+Every route except /health requires the X-Wallet-Secret header (see
+config.WALLET_SHARED_SECRET) -- binding to localhost only stops remote
+callers, not another local process calling execute_trade directly and
+skipping TrueForge's approval checkpoint. TrueForge is configured to send
+this automatically (header auth on the MCP server registration); see
+scripts/setup_trueforge.py.
 """
 
-from fastapi import FastAPI
+import hmac
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastmcp import FastMCP
 
 from . import config, wallet
@@ -74,6 +84,16 @@ def execute_trade(
 mcp_app = mcp.http_app(path="/")
 api = FastAPI(lifespan=mcp_app.lifespan)
 api.mount("/mcp", mcp_app)
+
+
+@api.middleware("http")
+async def require_shared_secret(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+    provided = request.headers.get("x-wallet-secret", "")
+    if not hmac.compare_digest(provided, config.WALLET_SHARED_SECRET):
+        return JSONResponse({"error": "missing or invalid X-Wallet-Secret header"}, status_code=401)
+    return await call_next(request)
 
 
 @api.get("/health")
