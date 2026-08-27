@@ -18,14 +18,14 @@ export default function Hero() {
         sizes="100vw"
         className="object-cover object-center"
       />
-      {/* Left-weighted + top/bottom gradient: keeps the headline (which
-          sits on the left, directly on the background, not inside a card)
-          legible against the image's brightest region (the lit city on the
-          right), and fades to solid ink at the very top (behind the nav)
-          and bottom (so the section blends into Thesis below rather than
-          cutting off mid-image). */}
-      <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/75 to-ink/35" />
-      <div className="absolute inset-0 bg-gradient-to-b from-ink via-transparent to-ink" />
+      {/* Light touch only: just enough to keep the headline (sitting
+          directly on the image, left side) and the nav/bottom edges
+          legible, without smothering the image's own glow. Fades to fully
+          transparent by the right two-thirds so the light beam and lit
+          skyline stay visible. */}
+      <div className="absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/35 to-transparent" />
+      <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-ink/70 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
 
       <nav className="relative z-10 flex items-center justify-between font-mono text-xs uppercase tracking-wideish text-ink-muted">
         <span className="text-ink-bright">TreasuryForge</span>
