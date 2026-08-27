@@ -74,6 +74,39 @@ def test_force_concentration_breach_rejects_unknown_asset(seeded_wallet):
         risk.force_concentration_breach("DOGE")
 
 
+@pytest.mark.parametrize("bad_margin", [0, -1, 50, 100, float("nan"), float("inf")])
+def test_force_concentration_breach_rejects_invalid_margin(seeded_wallet, bad_margin):
+    # target_pct = 50 + margin_pct must land strictly between 0 and 100:
+    # margin_pct <= 0 wouldn't actually breach (target_pct <= 50), and
+    # margin_pct >= 50 divides by zero or goes negative in the underlying
+    # holding-quantity math.
+    with pytest.raises(ValueError, match="margin_pct must be"):
+        risk.force_concentration_breach("BTC", margin_pct=bad_margin)
+
+
+def test_force_concentration_breach_rejects_when_another_position_is_unpriced(seeded_wallet, monkeypatch):
+    # Forcing BTC's concentration must fail closed if ANY held position is
+    # unpriced, not just BTC itself -- otherwise the promised follow-up
+    # check_risk_limits call would itself refuse to run at all, since it
+    # requires every position to be priced.
+    def flaky_equity_price(symbol):
+        if symbol == "TCS.NS":
+            raise RuntimeError("simulated quote outage")
+        price_inr = {"RELIANCE.NS": 2_500.0, "INFY.NS": 1_500.0, "HDFCBANK.NS": 1_600.0}[symbol]
+        return {
+            "symbol": symbol,
+            "price_inr": price_inr,
+            "price_usd": price_inr / 83.0,
+            "change_24h_pct": 0.0,
+            "market_open": True,
+            "source": "mock",
+        }
+
+    monkeypatch.setattr(wallet, "get_equity_price", flaky_equity_price)
+    with pytest.raises(ValueError, match="no live quote"):
+        risk.force_concentration_breach("BTC")
+
+
 def test_sell_all_breach_via_force_trigger(seeded_wallet):
     forced = risk.force_sell_all_breach("BTC", quantity=0.05)
     result = risk.check_risk_limits("BTC", "sell", quantity=forced["holding_quantity"])

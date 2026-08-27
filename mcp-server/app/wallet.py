@@ -73,11 +73,15 @@ def record_equity_snapshot(total_usd: float, reason: str) -> None:
 def set_holding_quantity(asset: str, quantity: float) -> None:
     """Directly overwrites a holding's quantity, bypassing execute_trade's
     cash/validation/lock-scoped accounting entirely -- cash is left
-    untouched. Debug/demo only: used by risk.py's force_concentration_breach
-    and force_sell_all_breach to put a known, specific quantity of a real
-    asset in place on demand, the same way force_daily_drawdown_breach
-    overwrites the day_start baseline directly rather than trading toward
-    it. Never called from the agent's own decision loop or execute_trade."""
+    untouched. Debug/demo only: used by risk.py's force_sell_all_breach to
+    put a known, specific quantity of a real asset in place on demand, the
+    same way force_daily_drawdown_breach overwrites the day_start baseline
+    directly rather than trading toward it. Never called from the agent's
+    own decision loop or execute_trade. For overwriting a holding based on a
+    *computed* target (e.g. a target concentration percentage), use
+    set_concentrated_holding instead -- it re-reads current state under the
+    same lock acquisition it writes under, which a separate read-then-write
+    against this function can't guarantee."""
     asset = asset.upper()
     with _trade_lock:
         conn = db.get_conn()
@@ -87,6 +91,62 @@ def set_holding_quantity(asset: str, quantity: float) -> None:
             (asset, quantity),
         )
         conn.commit()
+
+
+def set_concentrated_holding(asset: str, target_pct: float) -> dict:
+    """Debug/demo only: overwrites `asset`'s holding so its USD value is
+    exactly target_pct% of the resulting portfolio total. Used by risk.py's
+    force_concentration_breach.
+
+    Fetches live prices via get_portfolio (an unlocked read -- price
+    staleness of a few milliseconds isn't a correctness concern here) but
+    then re-reads raw cash/holdings and writes the new quantity inside a
+    single _trade_lock acquisition, rather than computing from that earlier
+    get_portfolio snapshot and writing separately (a real Qodo finding: a
+    concurrent live trade or reset landing in between would make the write
+    overwrite a holding state it never actually saw, silently discarding
+    that other change). Refuses to proceed if *any* held position lacks a
+    live quote, not just `asset` -- otherwise the promised follow-up
+    check_risk_limits call would itself refuse to run at all, since it
+    requires every position to be priced (another real Qodo finding)."""
+    asset = asset.upper()
+    if asset not in TRADABLE_ASSETS:
+        raise ValueError(f"Unknown tradable asset: {asset}. Supported: {TRADABLE_ASSETS}")
+    if not math.isfinite(target_pct) or not (0 < target_pct < 100):
+        raise ValueError(f"target_pct must be a finite number strictly between 0 and 100, got {target_pct}")
+
+    portfolio = get_portfolio()
+    price_by_asset = {p["asset"]: p["price_usd"] for p in portfolio["positions"]}
+    unpriced = [a for a, price in price_by_asset.items() if price is None]
+    if unpriced:
+        raise ValueError(f"Cannot force a concentration breach: no live quote for {unpriced} right now.")
+    price_usd = price_by_asset[asset]
+
+    with _trade_lock:
+        conn = db.get_conn()
+        rows = conn.execute("SELECT asset, quantity FROM holdings").fetchall()
+        holdings_by_asset = {r["asset"]: r["quantity"] for r in rows}
+        cash = holdings_by_asset.pop("CASH", 0.0)
+        total_usd = cash + sum(
+            holdings_by_asset.get(a, 0.0) * price_by_asset[a] for a in TRADABLE_ASSETS
+        )
+        current_asset_usd = holdings_by_asset.get(asset, 0.0) * price_usd
+        other_usd_value = total_usd - current_asset_usd
+        target_asset_usd = (target_pct / 100) * other_usd_value / (1 - target_pct / 100)
+        target_qty = target_asset_usd / price_usd
+
+        conn.execute(
+            "INSERT INTO holdings (asset, quantity) VALUES (?, ?) "
+            "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
+            (asset, target_qty),
+        )
+        conn.commit()
+
+    return {
+        "asset": asset,
+        "holding_quantity": target_qty,
+        "holding_usd_value": target_qty * price_usd,
+    }
 
 
 def record_synthetic_transaction(asset: str, side: str, quantity: float, price_usd: float, reason: str) -> None:

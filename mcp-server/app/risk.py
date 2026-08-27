@@ -198,39 +198,39 @@ def force_concentration_breach(asset: str = "BTC", margin_pct: float = 1.0) -> d
     """Debug/demo only -- never called from the agent's own decision loop.
     Directly overwrites `asset`'s holding quantity so it alone already
     exceeds MAX_SINGLE_ASSET_PCT of the portfolio, so the *next*
-    check_risk_limits call for this asset (any side/amount) reports a
-    genuine concentration breach on cue -- same demo-on-cue pattern as
-    force_daily_drawdown_breach, but for a real holding instead of the
-    day-start baseline. Cleared by POST /debug/reset (wipes holdings back
-    to the seed)."""
-    asset = asset.upper()
-    if asset not in wallet.TRADABLE_ASSETS:
-        raise ValueError(f"Unknown tradable asset: {asset}. Supported: {wallet.TRADABLE_ASSETS}")
+    check_risk_limits call proposing to **buy** this asset (any amount)
+    reports a genuine concentration breach on cue -- same demo-on-cue
+    pattern as force_daily_drawdown_breach, but for a real holding instead
+    of the day-start baseline. A large enough *sell* can still legitimately
+    bring the projected allocation back under the limit -- concentration is
+    evaluated on the trade's projected post-trade holding, not the current
+    one -- so this only guarantees a breach for buys. Cleared by POST
+    /debug/reset (wipes holdings back to the seed).
 
-    portfolio = wallet.get_portfolio()
-    position = next((p for p in portfolio["positions"] if p["asset"] == asset), None)
-    if position is None or position["price_usd"] is None:
-        raise ValueError(f"Cannot force a concentration breach: no live quote for {asset} right now.")
-    price_usd = position["price_usd"]
-
-    current_usd_value = position["usd_value"] or 0.0
-    other_usd_value = portfolio["total_usd"] - current_usd_value
+    margin_pct must land target_pct = MAX_SINGLE_ASSET_PCT + margin_pct
+    strictly between 0 and 100: at or above 100 the underlying math divides
+    by zero or negative, and at or below MAX_SINGLE_ASSET_PCT it wouldn't
+    actually breach (a real Qodo finding on an earlier cut of this that
+    let margin_pct=0 report "forced" without forcing anything)."""
+    if not math.isfinite(margin_pct) or not (0 < margin_pct < 100 - MAX_SINGLE_ASSET_PCT):
+        raise ValueError(
+            f"margin_pct must be a finite number strictly between 0 and "
+            f"{100 - MAX_SINGLE_ASSET_PCT}, got {margin_pct}"
+        )
     target_pct = MAX_SINGLE_ASSET_PCT + margin_pct
-    target_asset_usd = (target_pct / 100) * other_usd_value / (1 - target_pct / 100)
-    target_qty = target_asset_usd / price_usd
 
-    wallet.set_holding_quantity(asset, target_qty)
+    result = wallet.set_concentrated_holding(asset, target_pct)
 
     return {
         "forced": True,
-        "asset": asset,
-        "holding_quantity": target_qty,
-        "holding_usd_value": round(target_qty * price_usd, 2),
+        "asset": result["asset"],
+        "holding_quantity": result["holding_quantity"],
+        "holding_usd_value": round(result["holding_usd_value"], 2),
         "synthetic_concentration_pct": round(target_pct, 3),
         "note": (
-            f"{asset} holding overwritten so the next check_risk_limits call for this "
-            "asset reports a concentration breach. Debug/demo only -- POST /debug/reset "
-            "clears it."
+            f"{result['asset']} holding overwritten so the next check_risk_limits call "
+            "proposing to buy this asset reports a concentration breach. Debug/demo only "
+            "-- POST /debug/reset clears it."
         ),
     }
 
