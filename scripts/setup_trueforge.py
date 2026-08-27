@@ -18,8 +18,12 @@ instance (default http://localhost:8790):
      -- see mcp-server/README or the repo README) at MCP_SERVER_URL, with
      execute_trade gated behind TrueForge's native approval checkpoint.
   4. The Daytona sandbox provider, if DAYTONA_API_KEY is set (skipped
-     otherwise -- Phase 2 concern, not required to clear the Phase 1 /
-     Foundation Checkpoint proof of "one real MCP call in TrueForge's trace").
+     otherwise). Either way, the agent below is created with
+     config.sandbox.enabled=true: TrueForge falls back to its own built-in
+     local (bubblewrap) provider on its own when Daytona isn't ready, but
+     only if the agent actually requests a sandbox at all -- see
+     create_agent's comment for why this must not be tied to Daytona's own
+     registration success.
   5. The "treasury-agent" agent itself, referencing PRIMARY_MODEL_NAME.
 
 Every endpoint/schema this script calls was verified against
@@ -53,6 +57,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 GEMINI_MODELS = [
     {"name": "gemini-pro", "model_id": "gemini-3.1-pro-preview", "properties": {}},  # flagship reasoning
     {"name": "gemini-flash", "model_id": "gemini-3.7-flash", "properties": {}},      # fast/agentic, cheaper
+    {"name": "gemini-flash-lite", "model_id": "gemini-3.5-flash-lite", "properties": {}},  # cheapest/fastest -- default, see below
 ]
 GROQ_MODELS = [
     {"name": "groq-gpt-oss-120b", "model_id": "openai/gpt-oss-120b", "properties": {}},
@@ -67,11 +72,17 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # provider identifier is the well-known type ("google-gemini") or the
 # custom provider's own name ("groq").
 #
-# If GEMINI_API_KEY is present, this is google-gemini/gemini-flash, not
-# ...gemini-pro: this project's Gemini key is on the free tier, and Pro has
-# a hard 0-request free-tier quota (confirmed via a live 429 -- "limit: 0,
-# model: gemini-3.1-pro" -- not a guess). Switch to google-gemini/gemini-pro
-# once billing is attached to the key.
+# If GEMINI_API_KEY is present, this is google-gemini/gemini-flash-lite, not
+# ...gemini-pro or ...gemini-flash: this project's Gemini key is on the free
+# tier. Pro has a hard 0-request free-tier quota (confirmed via a live 429 --
+# "limit: 0, model: gemini-3.1-pro" -- not a guess). Flash has a real but low
+# free-tier RPD cap that heavy same-day testing exhausts fast (confirmed via
+# a live 429 -- "limit: 20, model: gemini-3.7-flash"). Flash-lite is a
+# separate quota bucket entirely and stayed available through all of that --
+# it's also the model a friend's parallel TrueForge project
+# (github.com/Anamiiikka/Mayday) settled on for the same reason. Switch to
+# google-gemini/gemini-flash or ...gemini-pro once billing is attached to
+# the key and free-tier ceilings stop mattering.
 #
 # An explicit PRIMARY_MODEL_NAME env var always wins. Otherwise this is
 # resolved after registration against whichever provider(s) actually
@@ -119,26 +130,41 @@ AGENT_INSTRUCTIONS = """\
 You manage a simulated multi-asset treasury: cash, BTC, ETH, and a small \
 basket of NSE equities (RELIANCE.NS, TCS.NS, INFY.NS, HDFCBANK.NS). The \
 point is not profitability -- it is demonstrating a safe, autonomous \
-decision engine.
+decision engine. Every tool call costs real time and quota, so be \
+economical: call each tool once with complete arguments, never re-fetch \
+data you already have in this turn, and keep your response to as few tool \
+calls as the decision actually requires.
 
-Default to holding. Only call execute_trade when you have a concrete, \
-reasoned case for a rebalance, and always state your reasoning first: the \
-triggering signal, current allocation, and why this trade is warranted.
+Standard procedure:
+1. EVIDENCE (read-only, one call each): get_portfolio for current holdings, \
+get_transaction_log for recent history. Default to holding unless this \
+evidence gives you a concrete, reasoned case for a rebalance.
+2. If you have a case, decide the exact trade (asset, side, quantity or \
+usd_amount), then call check_risk_limits ONCE with those exact arguments. \
+Its answer is computed, not your own estimate -- always cite its actual \
+numbers in execute_trade's `reason`, never a guess. It checks:
+   - Portfolio drawdown exceeding 5% in a day
+   - More than 2 consecutive losing trades
+   - Resulting single-asset allocation exceeding 50% of total portfolio value
+   - A "sell all" of any position
+3. If check_risk_limits reports any_breach=true, run exactly ONE sandbox \
+Python script before deciding whether to proceed: paste the position \
+values you already fetched into it as literals (no network calls -- the \
+sandbox has none), apply a correlated shock (BTC/ETH down 20%, equities \
+down 10%), and compute the resulting portfolio drawdown against the same \
+5% limit. Cite that number in execute_trade's `reason` alongside \
+check_risk_limits' numbers. Never use the sandbox to place trades or call \
+any wallet tool from within it -- it is read-only analysis feeding your \
+reasoning, nothing else.
+4. Propose the trade: call execute_trade with your full reasoning in \
+`reason`. It always pauses for human approval regardless of what \
+check_risk_limits said -- that is intentional and not something to work \
+around.
 
-Every execute_trade call pauses for human approval -- that is intentional \
-and not something to work around. Before proposing any trade, explicitly \
-check and state in your reasoning whether it would breach any of these:
-  - Portfolio drawdown exceeding 5% in a day
-  - More than 2 consecutive losing trades
-  - Resulting single-asset allocation exceeding 50% of total portfolio value
-  - A "sell all" of any position
-  - An equity trade while market_open is false (NSE trades 09:15-15:30 IST, \
-weekdays only) -- equity trades are hard-rejected by the wallet outside \
-these hours, so check get_equity_price's market_open field first and hold \
-instead of proposing one
-
-Use get_portfolio and get_transaction_log to ground your reasoning in \
-actual current state before deciding anything.
+An equity trade while market_open is false (NSE trades 09:15-15:30 IST, \
+weekdays only) is hard-rejected by the wallet outright, not gated by \
+check_risk_limits -- check get_equity_price's market_open field first and \
+hold instead of proposing one.
 """
 
 
@@ -208,9 +234,9 @@ def resolve_primary_model_name(gemini_ready: bool, groq_ready: bool) -> str | No
     if PRIMARY_MODEL_NAME_OVERRIDE:
         return PRIMARY_MODEL_NAME_OVERRIDE
     if gemini_ready:
-        return "google-gemini/gemini-flash"
+        return "google-gemini/gemini-flash-lite"
     if groq_ready:
-        return f"groq/{GROQ_MODELS[0]['name']}"
+        return "groq/groq-qwen3.8-27b"  # the only Groq model without the reasoning_content bug -- see difficulties.md
     return None
 
 
@@ -256,7 +282,7 @@ def register_sandbox_provider() -> bool:
     return resp.status_code < 300
 
 
-def create_agent(model_name: str, sandbox_ready: bool) -> bool:
+def create_agent(model_name: str) -> bool:
     resp = httpx.post(
         f"{API}/agents",
         json={
@@ -265,7 +291,15 @@ def create_agent(model_name: str, sandbox_ready: bool) -> bool:
                 "model": {"name": model_name},
                 "instructions": AGENT_INSTRUCTIONS,
                 "config": {
-                    "sandbox": {"enabled": sandbox_ready},
+                    # Always requested, independent of whether Daytona registration
+                    # succeeded above. TrueForge's own gate is spec.config.sandbox.enabled
+                    # (verified in the vendored dist): if false, it never even attempts a
+                    # sandbox, Daytona or otherwise. When Daytona isn't ready, TrueForge
+                    # falls back to its built-in local (bubblewrap) provider on its own --
+                    # tying this flag to Daytona's success would silently disable that
+                    # fallback on exactly the host (WSL2) where it's the *only* sandbox
+                    # path that works -- see difficulties.md.
+                    "sandbox": {"enabled": True},
                     "dynamic_sub_agents": {"enabled": True},
                 },
                 "mcp_servers": [
@@ -302,7 +336,7 @@ def main() -> int:
     gemini_ready = register_gemini_provider()
     groq_ready = register_groq_provider()
     mcp_ready = register_mcp_server()
-    sandbox_ready = register_sandbox_provider()  # optional (Phase 2) -- not required for success
+    register_sandbox_provider()  # optional (Daytona) -- agent still requests sandbox if this fails; see create_agent
 
     if not mcp_ready:
         print("[FATAL] wallet MCP server registration failed -- see above.")
@@ -313,7 +347,7 @@ def main() -> int:
         print("[FATAL] no model provider registered -- set GEMINI_API_KEY or GROQ_API_KEY.")
         return 1
 
-    if not create_agent(model_name, sandbox_ready):
+    if not create_agent(model_name):
         print("[FATAL] agent creation failed -- see above.")
         return 1
 
