@@ -394,8 +394,10 @@ demo reliability only:
   risky trade naturally on camera.
 - `POST /debug/trigger-approval/concentration?asset=BTC&margin_pct=1` —
   overwrites `asset`'s holding so it alone already exceeds the 50%
-  concentration limit; the next `check_risk_limits` call for that asset
-  reports a genuine breach.
+  concentration limit; the next `check_risk_limits` call proposing to **buy**
+  that asset reports a genuine breach (a large enough sell can still
+  legitimately bring projected concentration back under the limit, since the
+  trigger evaluates the post-trade holding, not the current one).
 - `POST /debug/trigger-approval/sell-all?asset=BTC&quantity=0.05` —
   overwrites `asset`'s holding to exactly `quantity` and returns it, so a
   follow-up sell of that same quantity reliably trips the sell-all trigger
