@@ -90,3 +90,17 @@ def test_equity_curve_values_match_the_bare_series(seeded_wallet):
     curve = metrics.get_equity_curve()
     bare = metrics._equity_series()
     assert [p["total_usd"] for p in curve] == bare
+
+
+def test_equity_curve_limit_returns_most_recent_points_still_in_order(seeded_wallet):
+    # seeded_wallet alone doesn't trigger a snapshot (no get_portfolio call
+    # yet), so these five are the only rows -- isolates the limit behavior
+    # from the day-start/periodic snapshots other tests exercise.
+    for i in range(5):
+        wallet.record_equity_snapshot(10_000.0 + i, f"test-{i}")
+
+    curve = metrics.get_equity_curve(limit=3)
+
+    # 3 most recent of the 5 inserted, oldest-first, plus the trailing "now" point.
+    assert [p["total_usd"] for p in curve[:-1]] == [10_002.0, 10_003.0, 10_004.0]
+    assert curve[-1]["reason"] == "now"

@@ -53,6 +53,16 @@ callers, not another local process calling execute_trade directly and
 skipping TrueForge's approval checkpoint. TrueForge is configured to send
 this automatically (header auth on the MCP server registration); see
 scripts/setup_trueforge.py.
+
+Every route on `api` below is a plain `def`, not `async def`, deliberately:
+none of them ever `await` anything, and this process runs uvicorn's default
+single-worker event loop, so an `async def` route that calls straight into
+synchronous SQLite queries and synchronous live-price HTTP calls (as
+wallet.get_portfolio() does) would block that one event loop -- and every
+other concurrent request, including the agent's own MCP tool calls -- for
+the duration (a real Qodo finding, most exposed by the dashboard's
+every-15-seconds polling of these same routes). A plain `def` route makes
+FastAPI run it in Starlette's threadpool instead, off the event loop.
 """
 
 import hmac
@@ -175,37 +185,37 @@ async def require_shared_secret(request: Request, call_next):
 
 
 @api.get("/health")
-async def health():
+def health():
     return {"status": "ok", "dry_run": config.DRY_RUN}
 
 
 @api.get("/ui/portfolio")
-async def ui_portfolio():
+def ui_portfolio():
     return wallet.get_portfolio()
 
 
 @api.get("/ui/transactions")
-async def ui_transactions(limit: int = 50):
+def ui_transactions(limit: int = 50):
     return wallet.get_transaction_log(limit=limit)
 
 
 @api.get("/ui/metrics")
-async def ui_metrics():
+def ui_metrics():
     return metrics.get_wallet_metrics()
 
 
 @api.get("/ui/risk-summary")
-async def ui_risk_summary():
+def ui_risk_summary():
     return risk.portfolio_risk_summary()
 
 
 @api.get("/ui/equity-curve")
-async def ui_equity_curve():
-    return metrics.get_equity_curve()
+def ui_equity_curve(limit: int = 2000):
+    return metrics.get_equity_curve(limit=limit)
 
 
 @api.post("/debug/reset")
-async def debug_reset():
+def debug_reset():
     """Demo/testing only -- wipes the wallet and reseeds it. Never called
     from the agent's own decision loop; see README for why this exists."""
     result = wallet.reset_wallet()
@@ -213,7 +223,7 @@ async def debug_reset():
 
 
 @api.post("/debug/trigger-approval")
-async def debug_trigger_approval():
+def debug_trigger_approval():
     """Demo/testing only -- synthesizes a daily-drawdown breach (see
     risk.force_daily_drawdown_breach) so the agent's next check_risk_limits
     call reports a genuine breach, guaranteeing the approval gate has a real
@@ -223,21 +233,21 @@ async def debug_trigger_approval():
 
 
 @api.post("/debug/trigger-approval/concentration")
-async def debug_trigger_approval_concentration(asset: str = "BTC", margin_pct: float = 1.0):
+def debug_trigger_approval_concentration(asset: str = "BTC", margin_pct: float = 1.0):
     """Demo/testing only -- see risk.force_concentration_breach. Never
     called from the agent's own decision loop; cleared by POST /debug/reset."""
     return risk.force_concentration_breach(asset=asset, margin_pct=margin_pct)
 
 
 @api.post("/debug/trigger-approval/sell-all")
-async def debug_trigger_approval_sell_all(asset: str = "BTC", quantity: float = 0.05):
+def debug_trigger_approval_sell_all(asset: str = "BTC", quantity: float = 0.05):
     """Demo/testing only -- see risk.force_sell_all_breach. Never called
     from the agent's own decision loop; cleared by POST /debug/reset."""
     return risk.force_sell_all_breach(asset=asset, quantity=quantity)
 
 
 @api.post("/debug/trigger-approval/consecutive-losses")
-async def debug_trigger_approval_consecutive_losses(count: int | None = None):
+def debug_trigger_approval_consecutive_losses(count: int | None = None):
     """Demo/testing only -- see risk.force_consecutive_losses_breach. Never
     called from the agent's own decision loop; cleared by POST /debug/reset."""
     return risk.force_consecutive_losses_breach(count=count)

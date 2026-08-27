@@ -42,15 +42,31 @@ def _equity_series() -> list[float]:
     return series
 
 
-def get_equity_curve() -> list[dict]:
+def get_equity_curve(limit: int | None = None) -> list[dict]:
     """Same series _equity_series() computes, but with timestamps and the
     recording reason attached -- max_drawdown_pct/sharpe_ratio only need the
     bare values, but the dashboard's P&L chart needs a time axis to plot
-    against."""
+    against.
+
+    equity_snapshots is append-only and grows on every trade, day-start
+    rollover, and periodic snapshot (wallet.PERIODIC_SNAPSHOT_INTERVAL_SECONDS);
+    the dashboard polls this every 15 seconds. Without a cap, a long-running
+    session would mean an ever-growing query, response, and chart on every
+    single poll (a real Qodo finding). `limit`, if given, returns the most
+    recent `limit` points -- still oldest-first -- via a subquery so the
+    LIMIT applies before the final ascending sort, not after."""
     conn = db.get_conn()
-    rows = conn.execute(
-        "SELECT timestamp, total_usd, reason FROM equity_snapshots ORDER BY id ASC"
-    ).fetchall()
+    if limit is not None:
+        rows = conn.execute(
+            "SELECT timestamp, total_usd, reason FROM ("
+            "  SELECT id, timestamp, total_usd, reason FROM equity_snapshots ORDER BY id DESC LIMIT ?"
+            ") ORDER BY id ASC",
+            (limit,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT timestamp, total_usd, reason FROM equity_snapshots ORDER BY id ASC"
+        ).fetchall()
     points = [{"timestamp": r["timestamp"], "total_usd": r["total_usd"], "reason": r["reason"]} for r in rows]
     points.append({
         "timestamp": datetime.now(timezone.utc).isoformat(),
