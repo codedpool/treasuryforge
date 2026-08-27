@@ -359,7 +359,7 @@ curl -X POST http://localhost:8790/api/v1/sessions/{id}/turns \
 ## Testing
 
 Both the wallet server's logic and `scripts/setup_trueforge.py`'s pure
-functions have a pytest suite — 88 tests, none requiring network access or
+functions have a pytest suite — 101 tests, none requiring network access or
 a running TrueForge/wallet instance (prices are mocked; SQLite runs against
 a throwaway per-test file, never the real dev `wallet.db`). Runs in CI
 (`.github/workflows/tests.yml`) on every push and every pull request.
@@ -372,14 +372,18 @@ cd scripts && pip install -r requirements-dev.txt && pytest
 Covers: `execute_trade`'s full validation surface and DRY_RUN/live
 behavior, the average-cost-basis P&L accounting (including DRY_RUN
 exclusion), all four risk triggers individually and all four force-trigger
-debug endpoints, `max_drawdown_pct`/`sharpe_ratio` against known synthetic
-curves, the day-start and periodic equity-snapshot recording, schema
-migration idempotency, and the manifest-merge logic that updates an
+debug endpoints (including their input validation and, for concentration,
+the every-position-must-be-priced check), `max_drawdown_pct`/`sharpe_ratio`
+against known synthetic curves, the day-start and periodic equity-snapshot
+recording (including refusing to snapshot while any position is unpriced),
+schema migration idempotency, and the manifest-merge logic that updates an
 existing agent without erasing its customizations. Several of these tests
 found real bugs while being written — not just confirmed existing behavior
 — including a Sharpe-ratio edge case where near-zero floating-point
 variance (not exactly zero) produced a meaningless enormous ratio instead
-of the `None` a flat equity curve should report.
+of the `None` a flat equity curve should report, and (per PR #6's Qodo
+review) a debug endpoint that could report a forced breach without actually
+forcing one.
 
 ## Debug / demo-only endpoints
 
@@ -397,7 +401,10 @@ demo reliability only:
   concentration limit; the next `check_risk_limits` call proposing to **buy**
   that asset reports a genuine breach (a large enough sell can still
   legitimately bring projected concentration back under the limit, since the
-  trigger evaluates the post-trade holding, not the current one).
+  trigger evaluates the post-trade holding, not the current one). Refuses to
+  run if *any* held position is unpriced (not just the target asset), and
+  `margin_pct` must be strictly between 0 and 50 — either bound would either
+  fail to breach or divide by zero in the underlying math.
 - `POST /debug/trigger-approval/sell-all?asset=BTC&quantity=0.05` —
   overwrites `asset`'s holding to exactly `quantity` and returns it, so a
   follow-up sell of that same quantity reliably trips the sell-all trigger
@@ -406,7 +413,8 @@ demo reliability only:
   synthetic losing sells straight into the transaction log, under an
   isolated `DEMO_LOSS` ticker that can never blend into or corrupt a real
   asset's cost basis. The only one of the four triggers with no natural way
-  to fire on demand at all under `DRY_RUN=true`.
+  to fire on demand at all under `DRY_RUN=true`. `count` must exceed the
+  consecutive-loss limit (2) — a smaller count wouldn't actually breach it.
 
 Every debug route above is cleared by `POST /debug/reset`.
 
@@ -491,7 +499,7 @@ Documented rather than silently absent:
 
 Every substantive change went through a pull request reviewed by
 [Qodo](https://qodo.ai) before merging, per the hackathon's code-review
-requirement. All three are merged into `main`:
+requirement. All six are merged into `main`:
 
 - **[PR #1 — Phase 1 foundation](https://github.com/codedpool/treasuryforge/pull/1)**:
   wallet MCP server, TrueForge runtime, registration script. Qodo caught —
@@ -515,15 +523,44 @@ requirement. All three are merged into `main`:
   reaching an already-existing agent) introduced a new one (the fix
   itself wholesale-replacing, then partially wholesale-replacing, a
   customized agent's manifest) — each caught and fixed in turn.
+- **[PR #4 — README and root `.env.example`](https://github.com/codedpool/treasuryforge/pull/4)**:
+  Qodo caught inaccurate setup instructions — a blank `KEY=` env var not
+  actually falling back to its default, curl examples missing
+  `Content-Type: application/json`, and a venv-activation command that
+  doesn't work the same way in PowerShell vs. Git Bash.
+- **[PR #5 — pytest suite and CI](https://github.com/codedpool/treasuryforge/pull/5)**:
+  82 tests plus GitHub Actions. Qodo caught a migration race-condition test
+  that wasn't actually exercising the race it claimed to (fixed with a
+  proxy connection that lies about `PRAGMA table_info`, verified by
+  temporarily sabotaging the code under test and confirming the test then
+  failed), and — across four review rounds — a CI trigger that only ran on
+  pushes to `main`, contradicting the README's own "runs on every push"
+  claim.
+- **[PR #6 — Remaining force-trigger endpoints and periodic equity
+  snapshot](https://github.com/codedpool/treasuryforge/pull/6)**: the other
+  three risk triggers' debug endpoints, plus a lazy periodic equity
+  snapshot. The first review pass found 8 real issues in one pass —
+  `force_concentration_breach`'s `margin_pct` and `force_consecutive_losses_breach`'s
+  `count` were both unvalidated and could report a forced breach without
+  actually forcing one; the concentration helper read the portfolio and
+  wrote the new holding as two separate, unlocked steps, so a concurrent
+  trade or reset could land in between and get silently overwritten; the
+  synthetic losing-streak inserts had the same problem one row at a time;
+  the periodic snapshot could record an incomplete, permanently-wrong
+  equity point when a held position had no live quote; and two
+  concurrent `get_portfolio` calls could both pass the periodic snapshot's
+  "is one due" check and double-insert. All eight fixed and confirmed
+  resolved on the follow-up pass.
 
-Every finding across all three PRs was a genuine, reproducible issue in the
+Every finding across all six PRs was a genuine, reproducible issue in the
 diff, not a style nitpick — see each PR's review thread for the full detail.
-A few (concurrency races around the SQLite migration and equity-snapshot
-ordering) needed real concurrent access to actually trigger, which is
-unlikely given this project's actual shape (single agent, approval-gated,
-local, one operator); those were fixed anyway since they were cheap, but
-are lower-stakes than the correctness findings that would surface under
-completely normal single-threaded use.
+A few (concurrency races around the SQLite migration, equity-snapshot
+ordering, and the concentration/consecutive-losses debug helpers) needed
+real concurrent access to actually trigger, which is unlikely given this
+project's actual shape (single agent, approval-gated, local, one operator);
+those were fixed anyway since they were cheap, but are lower-stakes than
+the correctness findings that would surface under completely normal
+single-threaded use.
 
 ## Data security
 
@@ -548,6 +585,10 @@ and requires a generated shared secret on every request but `/health`.
 - ✅ **Phase 3 — Self-audit, metrics, decision logging**: wallet performance
   metrics, per-trade computed risk snapshots, a real TrueForge sub-agent
   running backtests.
+- ✅ **Refinements (post-Phase 3)**: 101-test pytest suite with CI,
+  force-trigger debug endpoints for all four risk triggers, and a lazy
+  periodic equity snapshot for a richer P&L/drawdown curve — see
+  [Testing](#testing) and [Qodo Code Review Evidence](#qodo-code-review-evidence).
 - 🚧 **Phase 4 — Frontend (plain JSX)**: landing page, dashboard, P&L/
   allocation charts, decision log, approval queue, risk panel, Quant Desk
   panel (shows the sandbox script + output), audit export, reset button.
