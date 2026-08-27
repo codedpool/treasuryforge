@@ -65,6 +65,50 @@ def record_equity_snapshot(total_usd: float, reason: str) -> None:
     conn.commit()
 
 
+def set_holding_quantity(asset: str, quantity: float) -> None:
+    """Directly overwrites a holding's quantity, bypassing execute_trade's
+    cash/validation/lock-scoped accounting entirely -- cash is left
+    untouched. Debug/demo only: used by risk.py's force_concentration_breach
+    and force_sell_all_breach to put a known, specific quantity of a real
+    asset in place on demand, the same way force_daily_drawdown_breach
+    overwrites the day_start baseline directly rather than trading toward
+    it. Never called from the agent's own decision loop or execute_trade."""
+    asset = asset.upper()
+    with _trade_lock:
+        conn = db.get_conn()
+        conn.execute(
+            "INSERT INTO holdings (asset, quantity) VALUES (?, ?) "
+            "ON CONFLICT(asset) DO UPDATE SET quantity = excluded.quantity",
+            (asset, quantity),
+        )
+        conn.commit()
+
+
+def record_synthetic_transaction(asset: str, side: str, quantity: float, price_usd: float, reason: str) -> None:
+    """Inserts a transaction row directly (dry_run=0), skipping
+    execute_trade's cash/holdings mutation and validation entirely. Debug/
+    demo only: used by risk.py's force_consecutive_losses_breach to write a
+    realized-loss streak straight into the data realized_pnl_and_cost_basis
+    reads, which is otherwise nearly unreachable on demand -- a real losing
+    streak needs real losing live trades, and DRY_RUN sells are correctly
+    excluded from realized P&L. Never called from the agent's own decision
+    loop; asset is deliberately not validated against TRADABLE_ASSETS so
+    callers can use an isolated synthetic ticker that can't blend into any
+    real position's cost basis (see force_consecutive_losses_breach)."""
+    asset = asset.upper()
+    with _trade_lock:
+        conn = db.get_conn()
+        now = datetime.now(timezone.utc).isoformat()
+        usd_value = quantity * price_usd
+        conn.execute(
+            "INSERT INTO transactions "
+            "(timestamp, asset, side, quantity, price_usd, usd_value, reason, dry_run) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+            (now, asset, side, quantity, price_usd, usd_value, reason),
+        )
+        conn.commit()
+
+
 def _roll_day_start_if_needed(current_total_usd: float) -> float:
     """Lazily snapshots the portfolio's total value as the "start of day"
     baseline the first time it's checked on a new UTC calendar day, then
