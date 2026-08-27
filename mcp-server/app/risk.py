@@ -12,9 +12,10 @@ trade even execute"; check_risk_limits is read-only and advisory, meant to be
 called (and its numbers cited) before every execute_trade proposal.
 
 Read-only: never touches holdings/transactions, only meta (day-start
-baseline rollover) and reads.
+baseline rollover, via wallet.py) and reads.
 """
 
+import math
 from datetime import datetime, timezone
 
 from . import db, wallet
@@ -25,30 +26,19 @@ CONSECUTIVE_LOSS_LIMIT = 2
 SELL_ALL_THRESHOLD_PCT = 99.0  # selling >= this much of a holding counts as "sell all"
 
 
-def _roll_day_start_if_needed(current_total_usd: float) -> float:
-    """Lazily snapshots the portfolio's total value as the "start of day"
-    baseline the first time it's checked on a new UTC calendar day, then
-    returns whatever the current baseline is. There's no real market-day
-    clock for a paper wallet, so UTC-date rollover is the simplest
-    unambiguous definition of "day" here."""
-    today = datetime.now(timezone.utc).date().isoformat()
-    stored_date = db.get_meta("day_start_date")
-    if stored_date != today:
-        db.set_meta("day_start_date", today)
-        db.set_meta("day_start_value_usd", str(current_total_usd))
-        return current_total_usd
-    stored_value = db.get_meta("day_start_value_usd")
-    return float(stored_value) if stored_value else current_total_usd
-
-
 def _realized_pnl_series() -> list[float]:
-    """Realized P&L of every sell, oldest first, using running average cost
-    per asset. Seed rows count toward cost basis (they represent a real
-    acquisition price) but aren't sales themselves."""
+    """Realized P&L of every *executed* sell, oldest first, using running
+    average cost per asset. Seed rows count toward cost basis (they
+    represent a real acquisition price) but aren't sales themselves.
+    DRY_RUN rows are excluded entirely -- they never touched holdings (see
+    wallet.execute_trade), so counting them here would let simulated trades
+    fabricate a consecutive-loss streak (and corrupt the cost basis used for
+    real sells) under the default DRY_RUN=true config."""
     conn = db.get_conn()
     rows = conn.execute(
         "SELECT asset, side, quantity, price_usd FROM transactions "
-        "WHERE side IN ('buy', 'sell', 'seed') AND asset != 'CASH' ORDER BY id ASC"
+        "WHERE side IN ('buy', 'sell', 'seed') AND asset != 'CASH' AND dry_run = 0 "
+        "ORDER BY id ASC"
     ).fetchall()
 
     cost_basis: dict[str, tuple[float, float]] = {}  # asset -> (total_qty, total_cost)
@@ -92,7 +82,18 @@ def _project_trade(asset: str, side: str, quantity: float | None, usd_amount: fl
     if (quantity is None) == (usd_amount is None):
         raise ValueError("Provide exactly one of quantity or usd_amount")
 
+    amount: float = quantity if quantity is not None else usd_amount  # type: ignore[assignment]
+    if not math.isfinite(amount) or amount <= 0:
+        raise ValueError(f"quantity/usd_amount must be a finite positive number, got {amount}")
+
     portfolio = wallet.get_portfolio()
+    unpriced = [p["asset"] for p in portfolio["positions"] if p["price_usd"] is None]
+    if unpriced:
+        raise ValueError(
+            f"Cannot compute risk: no live quote for {unpriced} right now, so portfolio "
+            "total/concentration would silently exclude their value. Try again once their "
+            "quote source recovers."
+        )
     total_usd = portfolio["total_usd"]
     cash = portfolio["cash_usd"]
     position = next((p for p in portfolio["positions"] if p["asset"] == asset), None)
@@ -129,6 +130,7 @@ def _project_trade(asset: str, side: str, quantity: float | None, usd_amount: fl
         "usd_value": usd_value,
         "current_holding_qty": current_qty,
         "total_usd": total_usd,
+        "day_start_value_usd": portfolio["day_start_value_usd"],
         "can_afford": can_afford,
         "is_sell_all": is_sell_all,
         "projected_concentration_pct": projected_concentration_pct,
@@ -147,7 +149,9 @@ def check_risk_limits(
     projection = _project_trade(asset, side, quantity, usd_amount)
     total_usd = projection["total_usd"]
 
-    day_start = _roll_day_start_if_needed(total_usd)
+    # The day-start baseline is rolled by wallet.get_portfolio (called inside
+    # _project_trade above), not here -- see wallet.py's docstring on why.
+    day_start = projection["day_start_value_usd"]
     drawdown_pct = max(0.0, (day_start - total_usd) / day_start * 100) if day_start > 0 else 0.0
 
     streak = consecutive_losses()
@@ -203,8 +207,7 @@ def force_daily_drawdown_breach(margin_pct: float = 1.0) -> dict:
     target_pct = DAILY_DRAWDOWN_LIMIT_PCT + margin_pct
     inflated_day_start = total_usd / (1 - target_pct / 100)
 
-    db.set_meta("day_start_date", today)
-    db.set_meta("day_start_value_usd", str(inflated_day_start))
+    wallet.write_day_start(today, inflated_day_start)
 
     return {
         "forced": True,
