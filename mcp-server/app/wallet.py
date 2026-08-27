@@ -250,6 +250,16 @@ def execute_trade(
     if price_usd is None:
         quote = _price_usd(asset)
         price_usd = float(quote["price_usd"])
+    else:
+        # A caller-supplied price (server.py passes through check_risk_limits'
+        # own quote) skipped the amount validation above entirely -- it's a
+        # separate value. Without this, a bad direct call (price_usd=0, NaN,
+        # negative) would divide-by-zero or persist nonsensical transaction/
+        # holding values, since this is the wallet's sole state-mutating
+        # function and a caller isn't required to go through server.py.
+        price_usd = float(price_usd)
+        if not math.isfinite(price_usd) or price_usd <= 0:
+            raise ValueError(f"price_usd must be a finite positive number, got {price_usd}")
 
     if quantity is None:
         assert usd_amount is not None
