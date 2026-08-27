@@ -71,7 +71,15 @@ def sharpe_ratio(series: list[float] | None = None) -> float | None:
     if len(returns) < 2:
         return None
     stdev = statistics.stdev(returns)
-    if stdev == 0:
+    # A truly *exact* 0.0 essentially never happens for real returns --
+    # dividing floats that individually round to the same value (e.g. a
+    # perfectly steady growth rate computed independently each step) still
+    # leaves float noise on the order of 1e-16 in the stdev, which turns a
+    # meaningless near-zero-variance ratio into an enormous, equally
+    # meaningless Sharpe number instead of the None a genuinely flat series
+    # should report. 1e-9 is comfortably above that noise floor and well
+    # below any real percentage-return variance worth reporting.
+    if stdev < 1e-9:
         return None
     return round(statistics.mean(returns) / stdev, 4)
 
