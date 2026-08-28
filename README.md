@@ -387,23 +387,25 @@ cp .env.example .env.local
 ```
 
 Edit `.env.local`: set `WALLET_SHARED_SECRET` to the contents of
-`mcp-server/data/.wallet_secret`, confirm `WALLET_SERVER_URL`/
-`TRUEFORGE_URL` match wherever those are actually running, and set
-**`DASHBOARD_ACCESS_SECRET` to a real value of your own choosing** — the
-dashboard and its API routes refuse to serve anything without it (see
-[Design decisions](#design-decisions)). The wallet server's own shared
-secret never reaches the browser — every `app/api/wallet/*` route runs
-server-side and attaches it there; the frontend's own `.env.local` is a
-*second*, separate secret store from the wallet server's, not a duplicate
-of anything already public.
+`mcp-server/data/.wallet_secret`, and confirm `WALLET_SERVER_URL`/
+`TRUEFORGE_URL` match wherever those are actually running. The wallet
+server's own shared secret never reaches the browser — every
+`app/api/wallet/*` route runs server-side and attaches it there; the
+frontend's own `.env.local` is a *second*, separate secret store from the
+wallet server's, not a duplicate of anything already public.
+
+`DASHBOARD_ACCESS_SECRET` is optional and left unset by default — no
+login prompt for local dev. Set it to a real value only before deploying
+the dashboard somewhere reachable by someone other than you (see
+[Design decisions](#design-decisions)).
 
 ```bash
 npm run dev
 ```
 
-The browser will prompt for credentials the first time you open
-`/dashboard` — any username, `DASHBOARD_ACCESS_SECRET`'s value as the
-password.
+Open `/dashboard` directly — no login prompt, unless you set
+`DASHBOARD_ACCESS_SECRET` above, in which case the browser will ask for
+credentials the first time (any username, that value as the password).
 
 Open `http://localhost:3000`. If the dashboard shows "wallet server isn't
 reachable," start the wallet server (step 1) — and if you already had it
@@ -494,17 +496,20 @@ Every debug route above is cleared by `POST /debug/reset`.
   Next.js and attaches the secret there (`lib/walletProxy.js`, guarded by
   the `server-only` package). The browser only ever talks to the
   frontend's own `/api/*` routes.
-- **The frontend has its own, separate access gate.** Attaching
+- **The frontend has its own, separate access gate — opt-in.** Attaching
   `WALLET_SHARED_SECRET` server-side only protects the *second* hop
   (Next.js → wallet server) — without a gate of its own, the Next.js app
   is a fully unauthenticated proxy handing out full wallet read/write
-  access to anyone who can reach it. `middleware.js` gates `/dashboard` and
-  every `/api/wallet/*`/`/api/trueforge/*` route behind HTTP Basic Auth
-  checked against a *different* secret, `DASHBOARD_ACCESS_SECRET`. Basic
-  Auth over a custom login flow: zero UI code, the browser's own prompt and
-  credential cache do the work, and it matches this project's existing
-  "shared secret, not a full auth system" posture instead of inventing a
-  second one.
+  access to anyone who can reach it. `middleware.js` can gate `/dashboard`
+  and every `/api/wallet/*`/`/api/trueforge/*` route behind HTTP Basic Auth
+  checked against a *different* secret, `DASHBOARD_ACCESS_SECRET` — but
+  only when that secret is actually set. Local development has no one else
+  who can reach the app, so it defaults to open, no login prompt; set the
+  secret before deploying the dashboard anywhere reachable by someone else.
+  Basic Auth over a custom login flow: zero UI code, the browser's own
+  prompt and credential cache do the work, and it matches this project's
+  existing "shared secret, not a full auth system" posture instead of
+  inventing a second one.
 - **The sandbox is read-only and advisory by construction**: it gets a
   handful of literal numbers pasted in, has no network egress, and no
   wallet MCP access from within a generated script. It informs the

@@ -5,12 +5,12 @@
 export default function Figure({ label, value, sub, tone = "bright", size = "md", className = "" }) {
   const toneClass =
     {
-      bright: "text-ink-bright",
-      amber: "text-signal-amber",
-      green: "text-signal-green",
-      red: "text-signal-red",
-      muted: "text-ink-soft",
-    }[tone] ?? "text-ink-bright";
+      bright: "text-paper-ink",
+      amber: "text-signal-amber-ink",
+      green: "text-signal-green-ink",
+      red: "text-signal-red-ink",
+      muted: "text-paper-muted",
+    }[tone] ?? "text-paper-ink";
 
   const sizeClass =
     {
@@ -21,9 +21,9 @@ export default function Figure({ label, value, sub, tone = "bright", size = "md"
 
   return (
     <div className={className}>
-      <div className="font-mono text-[11px] uppercase tracking-wideish text-ink-muted">{label}</div>
+      <div className="font-mono text-[11px] uppercase tracking-wideish text-paper-muted">{label}</div>
       <div className={`tabular-figures mt-1 font-mono font-medium ${sizeClass} ${toneClass}`}>{value}</div>
-      {sub ? <div className="mt-1 text-xs text-ink-muted">{sub}</div> : null}
+      {sub ? <div className="mt-1 text-xs text-paper-muted">{sub}</div> : null}
     </div>
   );
 }

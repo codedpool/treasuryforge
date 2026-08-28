@@ -16,7 +16,7 @@ export default function DashboardNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex gap-1 overflow-x-auto md:flex-col md:gap-0.5">
+    <nav className="flex gap-1 overflow-x-auto">
       {LINKS.map((link) => {
         const active = pathname === link.href;
         return (
@@ -24,10 +24,10 @@ export default function DashboardNav() {
             key={link.href}
             href={link.href}
             className={[
-              "whitespace-nowrap rounded px-3 py-2 font-mono text-xs uppercase tracking-wideish transition",
+              "whitespace-nowrap border-b-2 px-3 py-2.5 font-mono text-xs uppercase tracking-wideish transition",
               active
-                ? "bg-ink-overlay text-signal-amber"
-                : "text-ink-muted hover:bg-ink-overlay/60 hover:text-ink-bright",
+                ? "border-signal-amber-ink text-signal-amber-ink"
+                : "border-transparent text-paper-muted hover:border-paper-line hover:text-paper-ink",
             ].join(" ")}
           >
             {link.label}

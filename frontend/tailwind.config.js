@@ -7,32 +7,37 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Every value below is sampled from harness3.png (the lake-at-dusk
+        // hero art): ink is the deep navy of the sky and its reflection in
+        // the water; paper is the sunlit cumulus/cabin cream; signal takes
+        // its three hues from the maple-red trees, the blue-green trees,
+        // and the warm gold light on the clouds and cabin windows.
         ink: {
-          DEFAULT: "#0A0C11",
-          raised: "#13161F",
-          overlay: "#191D29",
-          line: "#262B3A",
-          muted: "#8891A6",
-          soft: "#B7BECC",
-          bright: "#F3F1E9",
+          DEFAULT: "#14324B",
+          raised: "#1C3E5A",
+          overlay: "#24496B",
+          line: "#35597A",
+          muted: "#8FA7BC",
+          soft: "#C7D6E1",
+          bright: "#F6EEDD",
         },
         paper: {
-          DEFAULT: "#EDE6D2",
-          raised: "#F5F0E2",
-          line: "#C7BB98",
-          muted: "#7A7156",
-          ink: "#211B10",
+          DEFAULT: "#F3EAD6",
+          raised: "#FAF5E9",
+          line: "#DCC9A0",
+          muted: "#6E5E42",
+          ink: "#1C3348",
         },
         signal: {
-          amber: "#D99A3C",
-          "amber-ink": "#5C3C13",
-          "amber-soft": "#3A2A14",
-          green: "#5FA173",
-          "green-ink": "#1F4029",
-          "green-soft": "#16241C",
-          red: "#C1543D",
-          "red-ink": "#5A2015",
-          "red-soft": "#2E1712",
+          amber: "#C6923F",
+          "amber-ink": "#6B4A17",
+          "amber-soft": "#3A2E17",
+          green: "#4C7A68",
+          "green-ink": "#1F3D33",
+          "green-soft": "#1B2E27",
+          red: "#B24734",
+          "red-ink": "#6B2418",
+          "red-soft": "#3A1D15",
         },
       },
       fontFamily: {

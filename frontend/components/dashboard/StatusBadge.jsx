@@ -16,10 +16,14 @@ export default function StatusBadge() {
 
 function Dot({ tone, label }) {
   const toneClass =
-    { muted: "bg-ink-muted", red: "bg-signal-red", amber: "bg-signal-amber", green: "bg-signal-green" }[tone] ??
-    "bg-ink-muted";
+    {
+      muted: "bg-paper-muted",
+      red: "bg-signal-red-ink",
+      amber: "bg-signal-amber-ink",
+      green: "bg-signal-green-ink",
+    }[tone] ?? "bg-paper-muted";
   return (
-    <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-wideish text-ink-muted">
+    <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-wideish text-paper-muted">
       <span className={`h-1.5 w-1.5 rounded-full ${toneClass}`} aria-hidden />
       {label}
     </span>
