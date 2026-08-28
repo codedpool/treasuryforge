@@ -23,20 +23,20 @@ function Chart({ points }) {
         <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#D99A3C" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="#D99A3C" stopOpacity={0} />
+              <stop offset="0%" stopColor="#C6923F" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="#C6923F" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#262B3A" strokeDasharray="3 5" vertical={false} />
+          <CartesianGrid stroke="#35597A" strokeDasharray="3 5" vertical={false} />
           <XAxis
             dataKey="t"
-            tick={{ fill: "#8891A6", fontSize: 11, fontFamily: "var(--font-mono)" }}
-            axisLine={{ stroke: "#262B3A" }}
+            tick={{ fill: "#8FA7BC", fontSize: 11, fontFamily: "var(--font-mono)" }}
+            axisLine={{ stroke: "#35597A" }}
             tickLine={false}
             minTickGap={40}
           />
           <YAxis
-            tick={{ fill: "#8891A6", fontSize: 11, fontFamily: "var(--font-mono)" }}
+            tick={{ fill: "#8FA7BC", fontSize: 11, fontFamily: "var(--font-mono)" }}
             axisLine={false}
             tickLine={false}
             width={70}
@@ -44,16 +44,16 @@ function Chart({ points }) {
           />
           <Tooltip
             contentStyle={{
-              background: "#13161F",
-              border: "1px solid #262B3A",
+              background: "#1C3E5A",
+              border: "1px solid #35597A",
               borderRadius: 6,
               fontFamily: "var(--font-mono)",
               fontSize: 12,
             }}
-            labelStyle={{ color: "#8891A6" }}
+            labelStyle={{ color: "#8FA7BC" }}
             formatter={(value) => [formatUsd(value), "Total"]}
           />
-          <Area type="monotone" dataKey="total_usd" stroke="#D99A3C" strokeWidth={2} fill="url(#equityFill)" />
+          <Area type="monotone" dataKey="total_usd" stroke="#C6923F" strokeWidth={2} fill="url(#equityFill)" />
         </AreaChart>
       </ResponsiveContainer>
     </div>

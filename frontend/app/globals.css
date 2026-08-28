@@ -7,8 +7,8 @@ html {
 }
 
 body {
-  background-color: theme("colors.ink.DEFAULT");
-  color: theme("colors.ink.bright");
+  background-color: theme("colors.paper.DEFAULT");
+  color: theme("colors.paper.ink");
 }
 
 ::selection {
@@ -21,9 +21,9 @@ body {
   outline-offset: 2px;
 }
 
-/* Ink-on-dark grain: an SVG feTurbulence filter rendered to a data URI and
-   layered as a fixed, low-opacity overlay -- gives the control-room
-   background a little texture instead of a flat, dead-clean gradient. */
+/* Grain on the dark (navy) surfaces: an SVG feTurbulence filter rendered to
+   a data URI and layered as a fixed, low-opacity overlay -- texture instead
+   of a flat, dead-clean gradient. */
 .grain-ink::before {
   content: "";
   position: absolute;

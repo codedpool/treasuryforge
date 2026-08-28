@@ -5,7 +5,7 @@ import { usePortfolio } from "@/lib/api";
 import { formatUsd } from "@/lib/format";
 import DataState from "@/components/dashboard/DataState";
 
-const COLORS = { Cash: "#8891A6", Crypto: "#D99A3C", Equity: "#5FA173" };
+const COLORS = { Cash: "#8FA7BC", Crypto: "#C6923F", Equity: "#4C7A68" };
 
 export default function AllocationChart() {
   const { data, error, isLoading } = usePortfolio();
@@ -39,13 +39,13 @@ function Chart({ portfolio }) {
           <PieChart>
             <Pie data={rows} dataKey="value" nameKey="name" innerRadius={52} outerRadius={80} paddingAngle={2}>
               {rows.map((r) => (
-                <Cell key={r.name} fill={COLORS[r.name]} stroke="#0A0C11" strokeWidth={2} />
+                <Cell key={r.name} fill={COLORS[r.name]} stroke="#14324B" strokeWidth={2} />
               ))}
             </Pie>
             <Tooltip
               contentStyle={{
-                background: "#13161F",
-                border: "1px solid #262B3A",
+                background: "#1C3E5A",
+                border: "1px solid #35597A",
                 borderRadius: 6,
                 fontFamily: "var(--font-mono)",
                 fontSize: 12,

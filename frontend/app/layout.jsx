@@ -1,9 +1,9 @@
-import { Source_Serif_4, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const display = Source_Serif_4({
+const display = Fraunces({
   subsets: ["latin"],
-  weight: ["600", "700", "900"],
+  weight: ["500", "600", "700"],
   style: ["normal", "italic"],
   variable: "--font-display",
   display: "swap",
