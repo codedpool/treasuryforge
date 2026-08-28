@@ -1,14 +1,12 @@
 import Hero from "@/components/landing/Hero";
-import HowItWorks from "@/components/landing/HowItWorks";
-import RiskAndOversight from "@/components/landing/RiskAndOversight";
+import WhatWeBuilt from "@/components/landing/WhatWeBuilt";
 import ClosingCta from "@/components/landing/ClosingCta";
 
 export default function LandingPage() {
   return (
     <main>
       <Hero />
-      <HowItWorks />
-      <RiskAndOversight />
+      <WhatWeBuilt />
       <ClosingCta />
     </main>
   );
