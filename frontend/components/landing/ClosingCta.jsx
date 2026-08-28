@@ -4,7 +4,7 @@ import Link from "next/link";
 export default function ClosingCta() {
   return (
     <section id="closing" className="relative flex min-h-screen flex-col overflow-hidden bg-ink px-6 py-16 md:px-12">
-      <Image src="/sec3.png" alt="" fill priority sizes="100vw" className="object-cover object-left" />
+      <Image src="/sec3.png" alt="" fill sizes="100vw" className="object-cover object-left" />
 
       <div className="relative z-10 flex flex-1 flex-col items-end justify-center">
         <div className="w-full max-w-md text-left">
