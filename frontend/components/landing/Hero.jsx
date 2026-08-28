@@ -24,7 +24,7 @@ export default function Hero() {
           most of the way to transparent). A pill with its own flat,
           un-faded background is immune to that mismatch by construction. */}
       <div className="absolute left-0 top-0 h-full w-full max-w-3xl bg-gradient-to-r from-ink/85 via-ink/60 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-ink/85 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-ink to-transparent" />
 
       <nav className="relative z-10 flex items-center justify-between">
         <Image
