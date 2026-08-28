@@ -37,10 +37,7 @@ export default function Hero() {
         />
         <div className="flex items-center gap-5 rounded-full border border-ink-bright/10 bg-ink/70 py-2.5 pl-5 pr-2.5 font-mono text-xs uppercase tracking-wideish text-ink-bright backdrop-blur-md md:gap-6">
           <a href="#how-it-works" className="hidden hover:text-signal-amber md:inline">
-            How it works
-          </a>
-          <a href="#risk" className="hidden hover:text-signal-amber md:inline">
-            Risk limits
+            What we built
           </a>
           <Link
             href="/dashboard"
