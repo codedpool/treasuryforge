@@ -1,58 +1,63 @@
+import { Fragment } from "react";
 import Image from "next/image";
 import ApprovalReceipt from "@/components/landing/ApprovalReceipt";
 
-const STEPS = [
-  { title: "Price it", detail: "Live BTC/ETH and NSE equity quotes over MCP, not a guess." },
-  {
-    title: "Check it",
-    detail: "Four computed limits: >5% daily drawdown, >2 losses in a row, >50% concentration, ≥99% sell-all.",
-  },
-  { title: "Stress it", detail: "Near a limit, a fresh sandbox script runs a cross-asset shock — read-only, no wallet access." },
-  { title: "Propose it", detail: "The agent cites the real numbers in its reasoning, not a hunch." },
-  { title: "Hold it", detail: "TrueForge's native checkpoint pauses, unconditionally, until a person clears it." },
-  { title: "Audit it", detail: "Logged, then reviewed later by a second, separate agent with no access to the first one's conversation." },
-];
+const STEPS = ["Price", "Check", "Stress", "Propose", "Hold", "Audit"];
 
 export default function WhatWeBuilt() {
   return (
-    <section id="how-it-works" className="relative flex min-h-screen items-center overflow-hidden bg-ink">
-      {/* A hand holding a watching eye out of still water -- the same idea
-          this section is making: everything is watched, and something
-          still holds before it goes through. The panel sits in the
-          picture's own open sky/water on the right, so the hand and eye
-          stay fully visible on the left, unobstructed. */}
-      <Image src="/sec2.png" alt="" fill priority sizes="100vw" className="object-cover object-left" />
+    <section id="how-it-works" className="relative min-h-screen overflow-hidden bg-ink">
+      {/* Capped to exactly one viewport (h-screen on its own wrapper, not
+          tied to the section's actual content height) -- fill previously
+          sized itself to the section, and content taller than 100vh was
+          stretching the crop, which could push the hand and eye out of
+          frame entirely. If content below ever needs more room than one
+          viewport, it now continues on the section's flat bg-ink, not on a
+          distorted image. */}
+      <div className="absolute inset-x-0 top-0 h-screen">
+        <Image src="/sec2.png" alt="" fill priority sizes="100vw" className="object-cover object-left" />
+      </div>
 
-      <div className="relative z-10 w-full px-6 py-20 md:px-12">
-        {/* The panel's background belongs to the panel itself, sized by its
-            own content via normal document flow -- not a separate
-            absolutely-positioned scrim guessing a height, which is exactly
-            what made the hero's nav unreadable twice before this. */}
-        <div className="ml-auto w-full max-w-2xl rounded-2xl bg-ink/85 p-8 backdrop-blur-md md:p-12">
+      <div className="relative z-10 flex min-h-screen w-full items-center px-6 py-16 md:px-12">
+        <div className="ml-auto w-full max-w-2xl rounded-2xl bg-ink/85 p-8 backdrop-blur-md md:p-10">
           <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber">What we actually built</p>
           <h2 className="mt-4 font-display text-3xl font-semibold leading-tight text-ink-bright md:text-4xl">
             It watches everything. It still asks first.
           </h2>
           <p className="mt-5 text-base leading-relaxed text-ink-soft">
             A treasury agent that only chats about trades isn&rsquo;t a
-            treasury agent. This one reaches real tools, runs real numbers in
-            a real sandbox, and still stops, every single time, for a person
-            to say yes.
+            treasury agent. This one reaches real tools, runs real numbers,
+            and still stops, every single time, for a person to say yes.
           </p>
 
-          <ol className="mt-8 divide-y divide-ink-line border-y border-ink-line">
+          <div className="mt-9 flex flex-wrap items-start gap-y-6">
             {STEPS.map((step, i) => (
-              <li key={step.title} className="flex gap-4 py-4">
-                <span className="font-mono text-sm text-ink-muted">{`0${i + 1}`}</span>
-                <div>
-                  <span className="font-display text-base text-ink-bright">{step.title}</span>
-                  <p className="mt-0.5 text-sm text-ink-muted">{step.detail}</p>
+              <Fragment key={step}>
+                <div className="flex w-16 flex-col items-center gap-2 text-center md:w-[4.5rem]">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full border border-signal-amber/60 font-mono text-xs text-ink-bright">
+                    {i + 1}
+                  </span>
+                  <span className="font-display text-xs leading-tight text-ink-bright md:text-sm">{step}</span>
                 </div>
-              </li>
+                {i < STEPS.length - 1 ? (
+                  <span
+                    className="mt-[18px] h-px w-3 shrink-0 border-t border-dashed border-ink-line/70 md:w-5"
+                    aria-hidden
+                  />
+                ) : null}
+              </Fragment>
             ))}
-          </ol>
+          </div>
 
-          <div className="mt-10 flex flex-col items-center gap-3">
+          <p className="mt-6 text-sm leading-relaxed text-ink-muted">
+            Checked on every proposal: <span className="text-ink-soft">&gt;5% daily drawdown</span> ·{" "}
+            <span className="text-ink-soft">&gt;2 losses in a row</span> ·{" "}
+            <span className="text-ink-soft">&gt;50% concentration</span> ·{" "}
+            <span className="text-ink-soft">&ge;99% sell-all</span>. Near a limit, a sandbox stress test runs before
+            the agent proposes; every decision is logged and later reviewed by a second, separate agent.
+          </p>
+
+          <div className="mt-8 flex flex-col items-center gap-3">
             <ApprovalReceipt />
             <p className="max-w-xs text-center font-mono text-[11px] uppercase tracking-wideish text-ink-muted">
               Step 05, live — held at amber until a person clears it, stamped the instant they do.
