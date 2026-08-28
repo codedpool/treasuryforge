@@ -12,15 +12,15 @@ export default function WhatWeBuilt() {
         sizes="100vw"
         className="object-fill"
       />
-      {/* Positioned in percent, not px -- object-fill stretches the image
-          to exactly match the section's own dimensions on both axes, so a
-          point at a given % of the source image lands at that same % of
-          the section for any viewport size. Coordinates measured from the
-          image itself: the proposal table's left edge sits at ~55% width,
-          its bottom border at ~90% height. */}
+      {/* Positioned and sized in percent, not px -- object-fill stretches
+          the image to exactly match the section's own dimensions on both
+          axes, so a point/width at a given % of the source image lands at
+          that same % of the section for any viewport size. Width matches
+          the table's own span (~55%-83%); centered under it, not
+          left-aligned to its edge. */}
       <Link
         href="#closing"
-        className="absolute left-[55%] top-[91%] rounded bg-signal-amber-ink px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wideish text-paper-raised shadow-[0_4px_14px_rgba(0,0,0,0.35)] transition hover:brightness-110 md:px-5 md:py-2.5 md:text-sm"
+        className="absolute left-[68.6%] top-[91%] flex w-[27%] -translate-x-1/2 items-center justify-center rounded bg-signal-amber-ink py-2.5 font-mono text-xs font-semibold uppercase tracking-wideish text-paper-raised shadow-[0_4px_14px_rgba(0,0,0,0.35)] transition hover:brightness-110 md:py-3 md:text-sm"
       >
         Continue
       </Link>
