@@ -1,11 +1,11 @@
 const STATUS = {
-  pending: { label: "Hold for approval", tone: "text-signal-amber" },
-  approved: { label: "Cleared", tone: "text-signal-green" },
-  breach: { label: "Limit breached", tone: "text-signal-red" },
-  safe: { label: "Within limits", tone: "text-signal-green" },
-  dry_run: { label: "Simulated", tone: "text-ink-soft" },
-  live: { label: "Executed", tone: "text-signal-green" },
-  rejected: { label: "Rejected", tone: "text-signal-red" },
+  pending: { label: "Hold for approval", tone: "text-signal-amber-ink" },
+  approved: { label: "Cleared", tone: "text-signal-green-ink" },
+  breach: { label: "Limit breached", tone: "text-signal-red-ink" },
+  safe: { label: "Within limits", tone: "text-signal-green-ink" },
+  dry_run: { label: "Simulated", tone: "text-paper-muted" },
+  live: { label: "Executed", tone: "text-signal-green-ink" },
+  rejected: { label: "Rejected", tone: "text-signal-red-ink" },
 };
 
 /**

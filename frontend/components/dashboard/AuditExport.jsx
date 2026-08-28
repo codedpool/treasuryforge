@@ -77,14 +77,14 @@ function Body({ markdown, copied, setCopied }) {
         <button
           type="button"
           onClick={handleCopy}
-          className="rounded border border-ink-line px-4 py-2 font-mono text-xs uppercase tracking-wideish text-ink-soft transition hover:border-signal-amber hover:text-signal-amber"
+          className="rounded border border-paper-line px-4 py-2 font-mono text-xs uppercase tracking-wideish text-paper-ink/80 transition hover:border-signal-amber-ink hover:text-signal-amber-ink"
         >
           {copied ? "Copied" : "Copy to clipboard"}
         </button>
       </div>
 
       <Panel className="max-h-[32rem] overflow-auto p-4">
-        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-soft">{markdown}</pre>
+        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-paper-ink/80">{markdown}</pre>
       </Panel>
     </div>
   );

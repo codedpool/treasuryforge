@@ -1,6 +1,8 @@
-/** A control-room surface: raised ink, hairline border, faint grain. Use
- * for anything that's UI chrome -- charts, forms, nav -- as opposed to
- * Ledger, which is for content meant to read as a real record.
+/** A lighter parchment surface: raised paper, hairline border, faint
+ * grain. Use for UI chrome -- charts, forms, nav -- as opposed to Ledger,
+ * which sits one shade deeper and is for content meant to read as a real
+ * record. Both live in the same paper family now; the distinction is
+ * weight (raised vs. base), not a separate dark/light surface.
  *
  * Renders children directly (no wrapping div) so a consumer's own layout
  * classes in `className` (flex, grid, justify-between, ...) apply to the
@@ -14,7 +16,7 @@ export default function Panel({ children, className = "", as: Tag = "div", ...re
   return (
     <Tag
       className={[
-        "grain-ink relative overflow-hidden rounded-lg border border-ink-line bg-ink-raised",
+        "grain-paper relative overflow-hidden rounded-lg border border-paper-line bg-paper-raised",
         className,
       ].join(" ")}
       {...rest}

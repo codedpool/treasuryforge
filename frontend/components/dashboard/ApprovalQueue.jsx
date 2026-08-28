@@ -23,8 +23,8 @@ function TrueforgeStatus() {
     <Panel className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-mono text-xs uppercase tracking-wideish text-ink-muted">TrueForge connection</p>
-          <p className="mt-1 text-sm text-ink-soft">
+          <p className="font-mono text-xs uppercase tracking-wideish text-paper-muted">TrueForge connection</p>
+          <p className="mt-1 text-sm text-paper-ink/80">
             {isLoading
               ? "Checking…"
               : error
@@ -38,24 +38,24 @@ function TrueforgeStatus() {
           href={TRUEFORGE_PUBLIC_URL}
           target="_blank"
           rel="noreferrer"
-          className="rounded border border-ink-line px-3 py-1.5 font-mono text-xs uppercase tracking-wideish text-ink-soft transition hover:border-signal-amber hover:text-signal-amber"
+          className="rounded border border-paper-line px-3 py-1.5 font-mono text-xs uppercase tracking-wideish text-paper-ink/80 transition hover:border-signal-amber-ink hover:text-signal-amber-ink"
         >
           Open TrueForge ↗
         </a>
       </div>
 
-      <p className="mt-4 border-t border-ink-line pt-4 text-xs text-ink-muted">
+      <p className="mt-4 border-t border-paper-line pt-4 text-xs text-paper-muted">
         TrueForge owns the approval checkpoint itself, not this dashboard — a paused turn lives in its own
         session trace. Approve or reject a pending trade in TrueForge&rsquo;s own built-in UI; this panel shows
         connectivity and, below, the risk-flagged decisions that would have needed one.
       </p>
 
       {sessions && sessions.length > 0 ? (
-        <ul className="mt-4 divide-y divide-ink-line border-t border-ink-line font-mono text-xs">
+        <ul className="mt-4 divide-y divide-paper-line border-t border-paper-line font-mono text-xs">
           {sessions.slice(0, 8).map((s, i) => (
-            <li key={s.id ?? i} className="flex items-center justify-between gap-4 py-2 text-ink-soft">
+            <li key={s.id ?? i} className="flex items-center justify-between gap-4 py-2 text-paper-ink/80">
               <span className="truncate">{s.name || s.id || `session ${i + 1}`}</span>
-              {s.status ? <span className="text-ink-muted">{s.status}</span> : null}
+              {s.status ? <span className="text-paper-muted">{s.status}</span> : null}
             </li>
           ))}
         </ul>
@@ -70,11 +70,11 @@ function RecentBreaches() {
 
   return (
     <div>
-      <p className="font-mono text-xs uppercase tracking-wideish text-ink-muted">Recent risk-flagged decisions</p>
+      <p className="font-mono text-xs uppercase tracking-wideish text-paper-muted">Recent risk-flagged decisions</p>
       {isLoading ? (
-        <p className="mt-3 font-mono text-xs text-ink-muted">Loading…</p>
+        <p className="mt-3 font-mono text-xs text-paper-muted">Loading…</p>
       ) : error ? null : breaches.length === 0 ? (
-        <p className="mt-3 text-sm text-ink-soft">
+        <p className="mt-3 text-sm text-paper-ink/80">
           None of the last 50 decisions breached a limit — nothing here would have needed the gate.
         </p>
       ) : (

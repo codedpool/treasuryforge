@@ -70,9 +70,9 @@ function Entry({ entry }) {
 
 function Empty() {
   return (
-    <div className="rounded border border-ink-line bg-ink-raised px-4 py-6 text-center">
-      <p className="font-mono text-xs uppercase tracking-wideish text-ink-muted">No decisions logged yet</p>
-      <p className="mt-2 text-sm text-ink-soft">
+    <div className="rounded border border-paper-line bg-paper-raised px-4 py-6 text-center">
+      <p className="font-mono text-xs uppercase tracking-wideish text-paper-muted">No decisions logged yet</p>
+      <p className="mt-2 text-sm text-paper-ink/80">
         The log fills in as the agent proposes trades. Trigger one from the risk panel, or let the agent run.
       </p>
     </div>

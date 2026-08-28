@@ -23,20 +23,20 @@ function Chart({ points }) {
         <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#C6923F" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="#C6923F" stopOpacity={0} />
+              <stop offset="0%" stopColor="#6B4A17" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="#6B4A17" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#35597A" strokeDasharray="3 5" vertical={false} />
+          <CartesianGrid stroke="#DCC9A0" strokeDasharray="3 5" vertical={false} />
           <XAxis
             dataKey="t"
-            tick={{ fill: "#8FA7BC", fontSize: 11, fontFamily: "var(--font-mono)" }}
-            axisLine={{ stroke: "#35597A" }}
+            tick={{ fill: "#6E5E42", fontSize: 11, fontFamily: "var(--font-mono)" }}
+            axisLine={{ stroke: "#DCC9A0" }}
             tickLine={false}
             minTickGap={40}
           />
           <YAxis
-            tick={{ fill: "#8FA7BC", fontSize: 11, fontFamily: "var(--font-mono)" }}
+            tick={{ fill: "#6E5E42", fontSize: 11, fontFamily: "var(--font-mono)" }}
             axisLine={false}
             tickLine={false}
             width={70}
@@ -44,16 +44,17 @@ function Chart({ points }) {
           />
           <Tooltip
             contentStyle={{
-              background: "#1C3E5A",
-              border: "1px solid #35597A",
+              background: "#FAF5E9",
+              border: "1px solid #DCC9A0",
               borderRadius: 6,
               fontFamily: "var(--font-mono)",
               fontSize: 12,
             }}
-            labelStyle={{ color: "#8FA7BC" }}
+            labelStyle={{ color: "#6E5E42" }}
+            itemStyle={{ color: "#6B4A17" }}
             formatter={(value) => [formatUsd(value), "Total"]}
           />
-          <Area type="monotone" dataKey="total_usd" stroke="#C6923F" strokeWidth={2} fill="url(#equityFill)" />
+          <Area type="monotone" dataKey="total_usd" stroke="#6B4A17" strokeWidth={2} fill="url(#equityFill)" />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -63,10 +64,10 @@ function Chart({ points }) {
 function Sparse({ points }) {
   return (
     <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
-      <p className="font-mono text-xs uppercase tracking-wideish text-ink-muted">
+      <p className="font-mono text-xs uppercase tracking-wideish text-paper-muted">
         Not enough history for a curve yet
       </p>
-      <p className="max-w-xs text-xs text-ink-muted">
+      <p className="max-w-xs text-xs text-paper-muted">
         {points?.length === 1
           ? "One snapshot recorded so far — trade, or wait for the next periodic snapshot."
           : "No equity snapshots recorded yet."}

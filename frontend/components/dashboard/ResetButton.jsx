@@ -29,7 +29,7 @@ export default function ResetButton() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded border border-ink-line px-3 py-1.5 font-mono text-xs uppercase tracking-wideish text-ink-muted transition hover:border-signal-red hover:text-signal-red"
+        className="rounded border border-paper-line px-3 py-1.5 font-mono text-xs uppercase tracking-wideish text-paper-muted transition hover:border-signal-red-ink hover:text-signal-red-ink"
       >
         Reset wallet
       </button>
@@ -41,23 +41,23 @@ export default function ResetButton() {
           aria-modal="true"
           aria-labelledby="reset-title"
         >
-          <div className="grain-ink relative w-full max-w-sm overflow-hidden rounded-lg border border-signal-red-soft bg-ink-raised p-6">
+          <div className="grain-paper relative w-full max-w-sm overflow-hidden rounded-lg border border-signal-red-ink/30 bg-paper-raised p-6">
             <div className="relative z-10">
-              <h2 id="reset-title" className="font-display text-xl text-ink-bright">
+              <h2 id="reset-title" className="font-display text-xl text-paper-ink">
                 Reset the wallet?
               </h2>
-              <p className="mt-3 text-sm text-ink-soft">
+              <p className="mt-3 text-sm text-paper-ink/80">
                 Wipes every holding, transaction, and equity snapshot, then
                 reseeds from the standard $10,000 target allocation. This
                 cannot be undone.
               </p>
-              {error ? <p className="mt-3 text-sm text-signal-red">{error}</p> : null}
+              {error ? <p className="mt-3 text-sm text-signal-red-ink">{error}</p> : null}
               <div className="mt-6 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
                   disabled={busy}
-                  className="rounded px-3 py-2 font-mono text-xs uppercase tracking-wideish text-ink-muted hover:text-ink-bright"
+                  className="rounded px-3 py-2 font-mono text-xs uppercase tracking-wideish text-paper-muted hover:text-paper-ink"
                 >
                   Cancel
                 </button>

@@ -37,8 +37,8 @@ export default function ForceTriggerControls() {
 
   return (
     <Panel className="p-4">
-      <p className="font-mono text-xs uppercase tracking-wideish text-ink-muted">Force a trigger — demo only</p>
-      <p className="mt-2 text-xs text-ink-muted">
+      <p className="font-mono text-xs uppercase tracking-wideish text-paper-muted">Force a trigger — demo only</p>
+      <p className="mt-2 text-xs text-paper-muted">
         Never called from the agent&rsquo;s own decision loop. Synthesizes a real breach so the panel above (and the
         next proposed trade) has a genuine computed number to show. Cleared by resetting the wallet.
       </p>
@@ -49,14 +49,14 @@ export default function ForceTriggerControls() {
             type="button"
             onClick={() => trigger(t.key)}
             disabled={pending !== null}
-            className="rounded border border-ink-line px-3 py-1.5 font-mono text-xs uppercase tracking-wideish text-ink-soft transition hover:border-signal-amber hover:text-signal-amber disabled:opacity-50"
+            className="rounded border border-paper-line px-3 py-1.5 font-mono text-xs uppercase tracking-wideish text-paper-ink/80 transition hover:border-signal-amber-ink hover:text-signal-amber-ink disabled:opacity-50"
           >
             {pending === t.key ? "Forcing…" : t.label}
           </button>
         ))}
       </div>
       {result ? (
-        <p className={`mt-3 text-xs ${result.ok ? "text-signal-green" : "text-signal-red"}`}>
+        <p className={`mt-3 text-xs ${result.ok ? "text-signal-green-ink" : "text-signal-red-ink"}`}>
           {result.ok ? result.note : `Failed: ${result.note}`}
         </p>
       ) : null}

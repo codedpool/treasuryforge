@@ -5,7 +5,7 @@ import { usePortfolio } from "@/lib/api";
 import { formatUsd } from "@/lib/format";
 import DataState from "@/components/dashboard/DataState";
 
-const COLORS = { Cash: "#8FA7BC", Crypto: "#C6923F", Equity: "#4C7A68" };
+const COLORS = { Cash: "#24496B", Crypto: "#6B4A17", Equity: "#1F3D33" };
 
 export default function AllocationChart() {
   const { data, error, isLoading } = usePortfolio();
@@ -29,7 +29,7 @@ function Chart({ portfolio }) {
     .map(([name, value]) => ({ name, value }));
 
   if (rows.length === 0) {
-    return <p className="font-mono text-xs uppercase tracking-wideish text-ink-muted">No holdings yet.</p>;
+    return <p className="font-mono text-xs uppercase tracking-wideish text-paper-muted">No holdings yet.</p>;
   }
 
   return (
@@ -39,17 +39,18 @@ function Chart({ portfolio }) {
           <PieChart>
             <Pie data={rows} dataKey="value" nameKey="name" innerRadius={52} outerRadius={80} paddingAngle={2}>
               {rows.map((r) => (
-                <Cell key={r.name} fill={COLORS[r.name]} stroke="#14324B" strokeWidth={2} />
+                <Cell key={r.name} fill={COLORS[r.name]} stroke="#FAF5E9" strokeWidth={2} />
               ))}
             </Pie>
             <Tooltip
               contentStyle={{
-                background: "#1C3E5A",
-                border: "1px solid #35597A",
+                background: "#FAF5E9",
+                border: "1px solid #DCC9A0",
                 borderRadius: 6,
                 fontFamily: "var(--font-mono)",
                 fontSize: 12,
               }}
+              itemStyle={{ color: "#1C3348" }}
               formatter={(value) => formatUsd(value)}
             />
           </PieChart>
@@ -59,8 +60,8 @@ function Chart({ portfolio }) {
         {rows.map((r) => (
           <li key={r.name} className="flex items-center gap-2.5">
             <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: COLORS[r.name] }} aria-hidden />
-            <span className="text-ink-soft">{r.name}</span>
-            <span className="text-ink-bright">{formatUsd(r.value)}</span>
+            <span className="text-paper-ink/80">{r.name}</span>
+            <span className="text-paper-ink">{formatUsd(r.value)}</span>
           </li>
         ))}
       </ul>
