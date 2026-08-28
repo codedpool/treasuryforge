@@ -3,12 +3,20 @@ import Image from "next/image";
 export default function WhatWeBuilt() {
   return (
     <section id="how-it-works" className="relative flex min-h-screen flex-col bg-paper">
-      {/* A real spacer in document flow, not an overlay on top of either
-          image -- the previous blend attempt darkened info2.png's own
-          title banner because it sat on top of the image's content. This
-          sits *between* the hero and the image instead, so neither one is
-          touched, while still giving the seam a soft navy-to-paper fade. */}
-      <div className="h-10 w-full shrink-0 bg-gradient-to-b from-ink to-paper md:h-16" aria-hidden="true" />
+      {/* Fog rising off the lake, thinning as the chart comes into view --
+          a real spacer in document flow, not an overlay on either image
+          (the previous attempt at a gradient directly over info2.png
+          darkened its own title banner). An eased multi-stop gradient
+          (holds dark near the hero, dissolves gradually rather than on a
+          straight ramp) plus the .mist-seam turbulence texture from
+          globals.css for something with actual atmosphere, not a flat
+          CSS bar. Fades to fully transparent at its own bottom edge,
+          revealing the section's own bg-paper underneath -- no color to
+          match by hand. */}
+      <div
+        className="mist-seam h-28 w-full shrink-0 bg-[linear-gradient(to_bottom,rgb(20,50,75)_0%,rgb(20,50,75)_15%,rgba(20,50,75,0.55)_45%,rgba(20,50,75,0.12)_75%,transparent_100%)] md:h-40"
+        aria-hidden="true"
+      />
       <div className="relative flex-1">
         <Image
           src="/info2.png"
