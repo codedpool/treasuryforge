@@ -9,7 +9,7 @@ export default function WhatWeBuilt() {
         fill
         priority
         sizes="100vw"
-        className="object-contain"
+        className="object-fill"
       />
     </section>
   );
