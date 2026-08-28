@@ -74,6 +74,13 @@ export function middleware(request) {
     );
   }
 
+  // Flagged in review as "fails open in production if the operator forgets
+  // to set this" -- correct, and deliberate. This project has one operator
+  // and one deployment target (local, for a hackathon demo); there is no
+  // separate "production" environment to fail closed in, and adding a
+  // NODE_ENV branch here would just be dead code standing in for a
+  // deployment story this project doesn't have. If that ever changes, gate
+  // on the actual deployment signal at that point, not preemptively now.
   if (!SECRET) {
     return NextResponse.next();
   }
