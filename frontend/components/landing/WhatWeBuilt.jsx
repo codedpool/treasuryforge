@@ -3,20 +3,12 @@ import Image from "next/image";
 export default function WhatWeBuilt() {
   return (
     <section id="how-it-works" className="relative flex min-h-screen flex-col bg-paper">
-      {/* Fog rising off the lake, thinning as the chart comes into view --
-          a real spacer in document flow, not an overlay on either image
-          (the previous attempt at a gradient directly over info2.png
-          darkened its own title banner). An eased multi-stop gradient
-          (holds dark near the hero, dissolves gradually rather than on a
-          straight ramp) plus the .mist-seam turbulence texture from
-          globals.css for something with actual atmosphere, not a flat
-          CSS bar. Fades to fully transparent at its own bottom edge,
-          revealing the section's own bg-paper underneath -- no color to
-          match by hand. */}
-      <div
-        className="mist-seam h-28 w-full shrink-0 bg-[linear-gradient(to_bottom,rgb(20,50,75)_0%,rgb(20,50,75)_15%,rgba(20,50,75,0.55)_45%,rgba(20,50,75,0.12)_75%,transparent_100%)] md:h-40"
-        aria-hidden="true"
-      />
+      {/* A purpose-painted transition image (navy water/shore easing into
+          parchment gold) instead of a CSS-built gradient/texture -- a real
+          spacer in document flow, not an overlay on either image. */}
+      <div className="relative h-48 w-full shrink-0 md:h-64">
+        <Image src="/transition.png" alt="" fill priority sizes="100vw" className="object-cover object-center" />
+      </div>
       <div className="relative flex-1">
         <Image
           src="/info2.png"
