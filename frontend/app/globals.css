@@ -48,34 +48,6 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* A watercolor-style bleed: a color wash with an irregular, organic edge
-   (several overlapping radial blobs as a mask, instead of one straight
-   gradient line) and multiply-blended so it reads as pigment soaking into
-   the parchment rather than a flat overlay sitting on top of it. Color
-   and direction are supplied per use via --wc-from/--wc-to/--wc-dir. */
-.watercolor-bleed {
-  position: relative;
-  pointer-events: none;
-}
-.watercolor-bleed::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(var(--wc-dir, to bottom), var(--wc-from), var(--wc-to));
-  mix-blend-mode: multiply;
-  opacity: 0.55;
-  -webkit-mask-image: radial-gradient(55% 100% at 10% 30%, black 30%, transparent 75%),
-    radial-gradient(48% 90% at 38% 65%, black 28%, transparent 72%),
-    radial-gradient(52% 100% at 66% 25%, black 30%, transparent 76%),
-    radial-gradient(50% 92% at 90% 60%, black 26%, transparent 70%),
-    radial-gradient(45% 85% at 20% 85%, black 24%, transparent 68%);
-  mask-image: radial-gradient(55% 100% at 10% 30%, black 30%, transparent 75%),
-    radial-gradient(48% 90% at 38% 65%, black 28%, transparent 72%),
-    radial-gradient(52% 100% at 66% 25%, black 30%, transparent 76%),
-    radial-gradient(50% 92% at 90% 60%, black 26%, transparent 70%),
-    radial-gradient(45% 85% at 20% 85%, black 24%, transparent 68%);
-}
-
 .tabular-figures {
   font-variant-numeric: tabular-nums;
 }
