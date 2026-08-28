@@ -1,3 +1,4 @@
+import threading
 import time
 
 import httpx
@@ -19,28 +20,47 @@ _COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 # anything, and matches the other documented "honest simplifications" (see
 # README's Design decisions) rather than pretending trades price off a
 # millisecond-fresh feed the free tier can't actually sustain.
+#
+# The lock serializes the whole check-fetch-update sequence, not just the
+# cache mutation: FastAPI runs these as sync routes in a thread pool, and
+# the dashboard's portfolio/metrics/risk/equity-curve requests land within
+# milliseconds of each other, all wanting the same two ids. Without it,
+# they'd all see the same expired entries and all fire a duplicate CoinGecko
+# request before any of them finished populating the cache -- exactly the
+# burst this cache exists to prevent. With it, the first caller through a
+# cold/expired window does the one real fetch; everyone else blocks briefly
+# and then reads what it just cached, with no network call of their own.
 _CACHE_TTL_SECONDS = 30.0
 _cache: dict[str, tuple[float, dict]] = {}
+_lock = threading.Lock()
 
 
 def _fetch(ids: list[str]) -> dict[str, dict]:
-    now = time.monotonic()
-    stale = [i for i in ids if i not in _cache or now - _cache[i][0] > _CACHE_TTL_SECONDS]
+    with _lock:
+        now = time.monotonic()
+        stale = [i for i in ids if i not in _cache or now - _cache[i][0] > _CACHE_TTL_SECONDS]
 
-    if stale:
-        resp = httpx.get(
-            _COINGECKO_URL,
-            params={"ids": ",".join(stale), "vs_currencies": "usd", "include_24hr_change": "true"},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        for coingecko_id in stale:
-            data = payload.get(coingecko_id)
-            if data:
-                _cache[coingecko_id] = (now, data)
+        if stale:
+            resp = httpx.get(
+                _COINGECKO_URL,
+                params={"ids": ",".join(stale), "vs_currencies": "usd", "include_24hr_change": "true"},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            now = time.monotonic()
+            for coingecko_id in stale:
+                data = payload.get(coingecko_id)
+                if data:
+                    _cache[coingecko_id] = (now, data)
+                else:
+                    # CoinGecko's response didn't include this id -- drop the
+                    # old (now-expired) entry instead of continuing to serve
+                    # it indefinitely. Callers below treat a missing id as
+                    # "price unavailable", same as before this cache existed.
+                    _cache.pop(coingecko_id, None)
 
-    return {i: _cache[i][1] for i in ids if i in _cache}
+        return {i: _cache[i][1] for i in ids if i in _cache}
 
 
 def get_crypto_price(symbol: str) -> dict:
