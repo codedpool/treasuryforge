@@ -35,10 +35,7 @@ export default function Hero() {
           priority
           className="h-16 w-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)] md:h-20"
         />
-        <div className="flex items-center gap-5 rounded-full border border-ink-bright/10 bg-ink/70 py-2.5 pl-5 pr-2.5 font-mono text-xs uppercase tracking-wideish text-ink-bright backdrop-blur-md md:gap-6">
-          <a href="#how-it-works" className="hidden hover:text-signal-amber md:inline">
-            What we built
-          </a>
+        <div className="flex items-center rounded-full border border-ink-bright/10 bg-ink/70 py-2.5 pl-2.5 pr-2.5 font-mono text-xs uppercase tracking-wideish text-ink-bright backdrop-blur-md">
           <Link
             href="/dashboard"
             className="rounded-full bg-signal-amber px-3.5 py-1.5 text-ink transition hover:brightness-110"
@@ -51,33 +48,27 @@ export default function Hero() {
       <div className="relative z-10 flex flex-1 flex-col justify-start pb-16 pt-10 md:pt-14">
         <div className="max-w-xl">
           <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber [text-shadow:0_1px_4px_rgba(20,50,75,0.8)]">
-            Built natively on TrueForge
+            Autonomous treasury agent — built on TrueForge
           </p>
           <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.08] text-ink-bright [text-shadow:0_2px_10px_rgba(20,50,75,0.85)] md:text-6xl">
-            Go be somewhere else.
+            Everything runs without YOU.
             <br />
-            Nothing here moves without you.
+            Nothing executes without YOU.
           </h1>
           <p className="mt-6 max-w-md text-balance text-base leading-relaxed text-ink-bright/90 [text-shadow:0_1px_6px_rgba(20,50,75,0.8)] md:text-lg">
-            TreasuryForge watches a simulated cash, crypto, and NSE-equity
-            treasury while you&rsquo;re away — pricing every trade, computing
-            four risk limits, and holding each one at the gate until you say
-            yes.
+            TreasuryForge prices every trade across cash, crypto, and NSE
+            equities, computes four risk limits, and stress-tests the risky
+            ones — on its own. The one thing it can&rsquo;t do alone is pull
+            the trigger: every trade holds at the gate until you say yes.
           </p>
         </div>
 
         <div className="mt-auto flex flex-wrap items-center gap-4 pt-10">
-          <Link
-            href="/dashboard"
-            className="rounded bg-signal-amber px-5 py-3 font-mono text-sm font-semibold uppercase tracking-wideish text-ink shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
-          >
-            Open the dashboard
-          </Link>
           <a
             href="#how-it-works"
-            className="font-mono text-sm uppercase tracking-wideish text-ink-bright/90 underline decoration-ink-bright/50 underline-offset-4 [text-shadow:0_1px_4px_rgba(20,50,75,0.8)] transition hover:text-signal-amber hover:decoration-signal-amber"
+            className="rounded bg-signal-amber px-5 py-3 font-mono text-sm font-semibold uppercase tracking-wideish text-ink shadow-[0_4px_16px_rgba(0,0,0,0.4)] transition hover:brightness-110"
           >
-            See how it decides
+            See how it works
           </a>
         </div>
       </div>
