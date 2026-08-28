@@ -16,16 +16,13 @@ export default function Hero() {
         sizes="100vw"
         className="object-cover object-center"
       />
-      {/* Three scrims, each covering a specific zone regardless of exactly
-          where words wrap to: a full-width strip for the nav (the previous
-          version capped this at max-w-2xl from the left, so the nav's
-          right-side links -- sitting near the far right edge -- had no
-          scrim under them at all and landed straight on the bright cloud),
-          a taller left-anchored one for the headline/subhead, and a bottom
-          one for the CTA row. Text also carries its own shadow below as a
-          second, independent line of defense, since no scrim geometry is
-          ever pixel-perfect across every viewport width. */}
-      <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-ink/75 to-transparent md:h-36" />
+      {/* A left-anchored scrim for the headline/subhead, and a bottom one
+          for the CTA row. The nav doesn't rely on either -- see below: a
+          fading gradient sized to *guess* the nav's height was the exact
+          bug just fixed (by the time the gradient reaches the nav's actual
+          content, especially near its bottom edge, it had already faded
+          most of the way to transparent). A pill with its own flat,
+          un-faded background is immune to that mismatch by construction. */}
       <div className="absolute left-0 top-0 h-full w-full max-w-3xl bg-gradient-to-r from-ink/85 via-ink/60 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-ink/85 to-transparent" />
 
@@ -38,7 +35,7 @@ export default function Hero() {
           priority
           className="h-16 w-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)] md:h-20"
         />
-        <div className="flex items-center gap-6 font-mono text-xs uppercase tracking-wideish text-ink-bright/90 [text-shadow:0_1px_4px_rgba(20,50,75,0.8)]">
+        <div className="flex items-center gap-5 rounded-full border border-ink-bright/10 bg-ink/70 py-2.5 pl-5 pr-2.5 font-mono text-xs uppercase tracking-wideish text-ink-bright backdrop-blur-md md:gap-6">
           <a href="#how-it-works" className="hidden hover:text-signal-amber md:inline">
             How it works
           </a>
@@ -47,7 +44,7 @@ export default function Hero() {
           </a>
           <Link
             href="/dashboard"
-            className="rounded border border-ink-bright/50 bg-ink/35 px-3 py-1.5 text-ink-bright backdrop-blur-sm transition hover:border-signal-amber hover:text-signal-amber"
+            className="rounded-full bg-signal-amber px-3.5 py-1.5 text-ink transition hover:brightness-110"
           >
             Open dashboard
           </Link>
