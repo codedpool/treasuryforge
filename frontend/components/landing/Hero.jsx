@@ -3,27 +3,25 @@ import Link from "next/link";
 
 export default function Hero() {
   return (
-    <section className="grain-ink relative flex min-h-screen flex-col overflow-hidden border-b border-ink-line bg-ink px-6 pb-16 pt-10 md:px-12 md:pt-14">
-      {/* Full-bleed hero art: a lone figure witnessing a tower channeling
-          immense engineered power into the sky -- the same idea this
-          product is actually about (harnessing an agent's computed power
-          toward a goal, with a person still standing watch), not a
-          decorative backdrop. object-cover fills the section at any
-          viewport regardless of the source image's own aspect ratio. */}
+    <section className="relative flex min-h-screen flex-col overflow-hidden bg-ink px-6 pb-16 pt-10 md:px-12 md:pt-14">
+      {/* The lake at dusk: a man rowing, at leisure, on the water -- while
+          a treasury waits for him back at the cabin. The whole site's
+          palette and mood are pulled from this one frame, not chosen
+          separately from it. */}
       <Image
-        src="/harness1.png"
+        src="/harness3.png"
         alt=""
         fill
         priority
         sizes="100vw"
         className="object-cover object-center"
       />
-      {/* Darkening is scoped to the upper ~60% of the frame, where the
-          headline sits -- the lower-left figure and the cityscape below
-          stay clear of both the gradient and the text block above. */}
-      <div className="absolute inset-x-0 top-0 h-[60%] bg-gradient-to-r from-ink/85 via-ink/35 to-transparent" />
-      <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-ink/70 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
+      {/* The sky's upper-left quadrant is already the darkest, cleanest
+          part of the frame -- that's where the copy lives, so only a light
+          scrim is needed there, not a wall-to-wall darkening that would
+          flatten the clouds, the trees, or the water. */}
+      <div className="absolute inset-x-0 top-0 h-[55%] w-full max-w-2xl bg-gradient-to-br from-ink/55 via-ink/15 to-transparent md:h-[65%]" />
+      <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-ink/70 to-transparent" />
 
       <nav className="relative z-10 flex items-center justify-between">
         <Image
@@ -34,7 +32,7 @@ export default function Hero() {
           priority
           className="h-16 w-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)] md:h-20"
         />
-        <div className="flex items-center gap-6 font-mono text-xs uppercase tracking-wideish text-ink-muted">
+        <div className="flex items-center gap-6 font-mono text-xs uppercase tracking-wideish text-ink-soft">
           <a href="#how-it-works" className="hidden hover:text-ink-bright md:inline">
             How it works
           </a>
@@ -43,37 +41,31 @@ export default function Hero() {
           </a>
           <Link
             href="/dashboard"
-            className="rounded border border-ink-line px-3 py-1.5 text-ink-bright transition hover:border-signal-amber hover:text-signal-amber"
+            className="rounded border border-ink-soft/40 px-3 py-1.5 text-ink-bright transition hover:border-signal-amber hover:text-signal-amber"
           >
             Open dashboard
           </Link>
         </div>
       </nav>
 
-      {/* Top-aligned, not vertically centered: the figure in the source
-          image stands lower-left, and a centered text block would sit
-          right on top of him. Keeping the copy up near the nav leaves him
-          and the city below fully clear. */}
       <div className="relative z-10 flex flex-1 flex-col justify-start pb-16 pt-10 md:pt-14">
         <div className="max-w-xl">
           <p className="font-mono text-xs uppercase tracking-stamp text-signal-amber">
             Built natively on TrueForge
           </p>
           <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.08] text-ink-bright md:text-6xl">
-            An agent that reaches for the trade, and stops for you.
+            Go be somewhere else.
+            <br />
+            Nothing here moves without you.
           </h1>
-          <p className="mt-6 max-w-lg text-balance text-base leading-relaxed text-ink-soft md:text-lg">
-            TreasuryForge manages a simulated cash, crypto, and NSE equity
-            treasury. Every proposal is priced, checked against four
-            computed risk limits, and held for a human at the gate — not a
-            chat box that happens to place trades.
+          <p className="mt-6 max-w-md text-balance text-base leading-relaxed text-ink-soft md:text-lg">
+            TreasuryForge watches a simulated cash, crypto, and NSE-equity
+            treasury while you&rsquo;re away — pricing every trade, computing
+            four risk limits, and holding each one at the gate until you say
+            yes.
           </p>
         </div>
 
-        {/* Pushed to the bottom of the section (mt-auto), not sitting
-            right under the copy -- that put both buttons on the busiest,
-            brightest part of the image. Down here they sit inside the
-            bottom gradient's solid-ink fade, where they actually read. */}
         <div className="mt-auto flex flex-wrap items-center gap-4 pt-10">
           <Link
             href="/dashboard"
@@ -83,9 +75,9 @@ export default function Hero() {
           </Link>
           <a
             href="#how-it-works"
-            className="font-mono text-sm uppercase tracking-wideish text-ink-soft underline decoration-ink-line underline-offset-4 transition hover:text-ink-bright"
+            className="font-mono text-sm uppercase tracking-wideish text-ink-soft underline decoration-ink-soft/40 underline-offset-4 transition hover:text-ink-bright"
           >
-            See the decision loop
+            See how it decides
           </a>
         </div>
       </div>
