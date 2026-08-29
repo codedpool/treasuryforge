@@ -1,4 +1,19 @@
-# TreasuryForge
+<p align="center">
+  <img src="frontend/public/logo.png" alt="TreasuryForge" width="220">
+</p>
+
+<h1 align="center">TreasuryForge</h1>
+
+<p align="center">
+  <em>Everything runs without you. Nothing executes without you.</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/codedpool/treasuryforge/actions/workflows/tests.yml"><img src="https://github.com/codedpool/treasuryforge/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/built%20on-TrueForge-14324b" alt="Built on TrueForge">
+  <img src="https://img.shields.io/badge/reviewed%20by-Qodo-6b4fd1" alt="Reviewed by Qodo">
+  <a href="https://www.wemakedevs.org/hackathons/trueforge"><img src="https://img.shields.io/badge/hackathon-WeMakeDevs%20%C3%97%20TrueFoundry-c6923f" alt="WeMakeDevs x TrueFoundry Agent Harness Hackathon"></a>
+</p>
 
 An autonomous multi-asset treasury agent — cash, BTC/ETH, and a basket of NSE
 equities — built natively on [TrueForge](https://trueforge.dev), TrueFoundry's
