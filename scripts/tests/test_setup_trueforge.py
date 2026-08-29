@@ -70,24 +70,29 @@ def test_merge_handles_a_bare_minimal_existing_manifest():
 
 def test_explicit_override_always_wins(monkeypatch):
     monkeypatch.setattr(st, "PRIMARY_MODEL_NAME_OVERRIDE", "custom/model")
-    assert st.resolve_primary_model_name(gemini_ready=False, groq_ready=False) == "custom/model"
+    assert st.resolve_primary_model_name(gemini_ready=False, groq_ready=False, openrouter_ready=False) == "custom/model"
 
 
-def test_prefers_gemini_when_no_override(monkeypatch):
+def test_prefers_openrouter_when_no_override(monkeypatch):
     monkeypatch.setattr(st, "PRIMARY_MODEL_NAME_OVERRIDE", None)
-    assert st.resolve_primary_model_name(gemini_ready=True, groq_ready=True) == "google-gemini/gemini-flash-lite"
+    assert st.resolve_primary_model_name(gemini_ready=True, groq_ready=True, openrouter_ready=True) == "openrouter/openrouter-minimax-m3"
+
+
+def test_falls_back_to_gemini_when_openrouter_not_ready(monkeypatch):
+    monkeypatch.setattr(st, "PRIMARY_MODEL_NAME_OVERRIDE", None)
+    assert st.resolve_primary_model_name(gemini_ready=True, groq_ready=True, openrouter_ready=False) == "google-gemini/gemini-flash-lite"
 
 
 def test_falls_back_to_groq_when_gemini_not_ready(monkeypatch):
     monkeypatch.setattr(st, "PRIMARY_MODEL_NAME_OVERRIDE", None)
     # The only Groq model without the reasoning_content bug -- see the
     # module's own comment on this constant.
-    assert st.resolve_primary_model_name(gemini_ready=False, groq_ready=True) == "groq/groq-qwen3.8-27b"
+    assert st.resolve_primary_model_name(gemini_ready=False, groq_ready=True, openrouter_ready=False) == "groq/groq-qwen3.8-27b"
 
 
-def test_returns_none_when_neither_provider_ready(monkeypatch):
+def test_returns_none_when_no_provider_ready(monkeypatch):
     monkeypatch.setattr(st, "PRIMARY_MODEL_NAME_OVERRIDE", None)
-    assert st.resolve_primary_model_name(gemini_ready=False, groq_ready=False) is None
+    assert st.resolve_primary_model_name(gemini_ready=False, groq_ready=False, openrouter_ready=False) is None
 
 
 # --- Blank env values fall back to defaults, not literal empty ------------
