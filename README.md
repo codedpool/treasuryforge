@@ -28,6 +28,8 @@ into every decision's reasoning, and a self-audit sub-agent that reviews its
 own performance and proposes rule changes — all as TrueForge primitives, not
 a custom app with an LLM call bolted on.
 
+https://github.com/user-attachments/assets/219fe1f5-a88b-4be6-b461-0906f4a8164c
+
 ---
 
 ## Table of contents
@@ -46,7 +48,6 @@ a custom app with an LLM call bolted on.
 - [Known limitations](#known-limitations)
 - [Qodo Code Review Evidence](#qodo-code-review-evidence)
 - [Data security](#data-security)
-- [Project status](#project-status)
 
 ---
 
@@ -349,8 +350,9 @@ npx @truefoundry/trueforge
 ```
 
 TrueForge serves its own built-in web UI at whatever port it starts on
-(`http://localhost:8790` by default) — usable today for driving sessions by
-hand, ahead of this repo's own dashboard (see [Project status](#project-status)).
+(`http://localhost:8790` by default) — useful for driving sessions by hand
+alongside this repo's own dashboard (see [How to run it](#how-to-run-it)
+below for the dashboard's own setup).
 
 ### 3. Register everything
 
@@ -712,35 +714,3 @@ No API keys, secrets, or personal data are committed to this repository.
 (`data/.wallet_secret`) are all gitignored; `.env.example` documents every
 variable with no real values. The wallet MCP server binds to localhost only
 and requires a generated shared secret on every request but `/health`.
-
-## Project status
-
-- ✅ **Phase 0 — Foundation checkpoint**: TrueForge running locally, wallet
-  MCP tool registered, a real tool call visible in TrueForge's own trace,
-  Qodo installed, first PR merged.
-- ✅ **Phase 1 — Core TrueForge loop**: wallet MCP tool, deterministic seed,
-  `DRY_RUN` guard, reset endpoint.
-- ✅ **Phase 2 — Market data, approval gate, sandbox**: crypto/equity tools,
-  native approval checkpoint proven firing end to end, sandbox stress test
-  wired to real risk breaches, force-trigger debug endpoint. One honest gap:
-  sandbox execution guardrails are partial (see
-  [Known limitations](#known-limitations)).
-- ✅ **Phase 3 — Self-audit, metrics, decision logging**: wallet performance
-  metrics, per-trade computed risk snapshots, a real TrueForge sub-agent
-  running backtests.
-- ✅ **Refinements (post-Phase 3)**: 105-test pytest suite with CI,
-  force-trigger debug endpoints for all four risk triggers, and a lazy
-  periodic equity snapshot for a richer P&L/drawdown curve — see
-  [Testing](#testing) and [Qodo Code Review Evidence](#qodo-code-review-evidence).
-- ✅ **Phase 4 — Frontend (plain JS/JSX)**: landing page with a live
-  proposal-to-approval animation; dashboard with portfolio summary, P&L/
-  allocation charts, decision log, risk panel with force-trigger demo
-  buttons, a TrueForge-connectivity-aware approval queue, Quant Desk, and a
-  Markdown audit export (download + clipboard copy). Reset button in the
-  dashboard header. No `.tsx`, no `tsconfig.json`. Honest gap: no
-  automated frontend test suite yet (see [Testing](#testing)); the
-  approval queue and Quant Desk pages link out to TrueForge's own UI/trace
-  rather than guessing at an unverified checkpoint API — see their pages'
-  own copy for why.
-- ⬜ **Phase 5 — Demo, submission polish**: demo video, final Qodo pass,
-  submission.
