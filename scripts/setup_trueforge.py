@@ -8,23 +8,35 @@ instance (default http://localhost:8790):
      faster one -- see GEMINI_MODELS below.
   2. Groq as a secondary/fallback catalog entry, registered as a "custom"
      OpenAI-compatible provider (Groq isn't one of TrueForge's well-known
-     types) -- see GROQ_MODELS below. NOTE: TrueForge's agent manifest takes
-     a single `model.name`; nothing in the verified API surface suggests
-     automatic runtime fallback between providers. Registering Groq makes
-     its models available/selectable in the catalog now; switching to one
-     is a manual model-name change (in this script or the TrueForge UI)
-     until/unless native fallback shows up in the docs.
-  3. The wallet MCP server (this repo's mcp-server/, must already be running
+     types) -- see GROQ_MODELS below.
+  3. OpenRouter as a third catalog entry, same "custom" pattern -- see
+     OPENROUTER_MODELS below. Added after real same-day testing: Gemini's
+     free tier exhausted mid-demo, and Groq's 8K TPM ceiling proved too
+     tight against this agent's ~4,600-token fixed per-turn overhead.
+     Both registered OpenRouter models were verified with a real
+     multi-turn tool-call round trip before being wired in, not assumed
+     from the catalog's metadata -- two other free models that also claim
+     tool support failed on the first call with a provider-side 429 (see
+     difficulties.md). It's the default now (see resolve_primary_model_name)
+     for exactly that reason: proven not to exhaust under real use, unlike
+     the other two's free tiers on this project's keys.
+     NOTE on all three providers: TrueForge's agent manifest takes a single
+     `model.name`; nothing in the verified API surface suggests automatic
+     runtime fallback between providers. Registering a provider makes its
+     models available/selectable in the catalog now; switching to one is a
+     manual model-name change (PRIMARY_MODEL_NAME, this script, or the
+     TrueForge UI) until/unless native fallback shows up in the docs.
+  4. The wallet MCP server (this repo's mcp-server/, must already be running
      -- see mcp-server/README or the repo README) at MCP_SERVER_URL, with
      execute_trade gated behind TrueForge's native approval checkpoint.
-  4. The Daytona sandbox provider, if DAYTONA_API_KEY is set (skipped
+  5. The Daytona sandbox provider, if DAYTONA_API_KEY is set (skipped
      otherwise). Either way, the agent below is created with
      config.sandbox.enabled=true: TrueForge falls back to its own built-in
      local (bubblewrap) provider on its own when Daytona isn't ready, but
      only if the agent actually requests a sandbox at all -- see
      create_agent's comment for why this must not be tied to Daytona's own
      registration success.
-  5. The "treasury-agent" agent itself, referencing PRIMARY_MODEL_NAME --
+  6. The "treasury-agent" agent itself, referencing PRIMARY_MODEL_NAME --
      created if it doesn't exist, or its manifest (instructions/model/
      config) updated in place if it does, so re-running this after an
      instructions change (like Phase 3's self-audit section) actually
@@ -34,7 +46,8 @@ Every endpoint/schema this script calls was verified against
 https://trueforge.dev/api-reference before writing this -- see
 difficulties.md for the one that turned out not to exist as guessed.
 
-Usage (reads GEMINI_API_KEY / GROQ_API_KEY from the repo-root .env):
+Usage (reads GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY from the
+repo-root .env):
     python scripts/setup_trueforge.py
 """
 
@@ -58,6 +71,7 @@ API = f"{TRUEFORGE_URL}/api/v1"
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 
 # name = alias used in agent manifests (agent.model.name), model_id = the
 # upstream provider's own identifier. Verified 2026-08-27 by querying
@@ -76,6 +90,30 @@ GROQ_MODELS = [
     {"name": "groq-qwen3.6-27b", "model_id": "qwen/qwen3.6-27b", "properties": {}},
 ]
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+# Registered as a third fallback catalog entry (same "custom" OpenAI-
+# compatible pattern as Groq) once both Gemini and Groq's free tiers proved
+# too tight for a real recording session in the same day -- see
+# difficulties.md. Both models below were verified with a real two-turn
+# tool-call round trip (issue a tool call, feed back a result, get a
+# coherent follow-up) before being wired in here, not picked from the
+# catalog's supported_parameters metadata alone -- two other :free models
+# that also claim tool support (glm-5.2, gemma-4-31b-it) failed with a
+# provider-side 429 on the very first call, since OpenRouter's :free models
+# route through a shared per-underlying-provider pool that gets rate-limited
+# by aggregate demand across every OpenRouter user, not just this account.
+# minimax-m3 is the default; nemotron is registered as a second selectable
+# option in the same catalog for exactly the case where minimax's shared
+# pool is busy -- switch PRIMARY_MODEL_NAME to it without re-verifying.
+OPENROUTER_MODELS = [
+    {"name": "openrouter-minimax-m3", "model_id": "minimax/minimax-m3:free", "properties": {}},
+    {
+        "name": "openrouter-nemotron-3-super",
+        "model_id": "nvidia/nemotron-3-super-120b-a12b:free",
+        "properties": {},
+    },
+]
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # What the treasury-agent actually runs on. Agent manifests need the fully
 # qualified "provider/model" form -- the bare alias from models[].name (as
@@ -260,14 +298,39 @@ def register_groq_provider() -> bool:
     return resp.status_code < 300
 
 
-def resolve_primary_model_name(gemini_ready: bool, groq_ready: bool) -> str | None:
+def register_openrouter_provider() -> bool:
+    if not OPENROUTER_API_KEY:
+        print("[SKIP] OpenRouter provider: OPENROUTER_API_KEY not set.")
+        return False
+    resp = httpx.put(
+        f"{API}/settings/model-providers",
+        json={
+            "manifest": {
+                "type": "custom",
+                "name": "openrouter",
+                "base_url": OPENROUTER_BASE_URL,
+                "auth": {"api_key": OPENROUTER_API_KEY},
+                "models": OPENROUTER_MODELS,
+            }
+        },
+        timeout=20.0,
+    )
+    _print_response(f"model provider (openrouter: {[m['name'] for m in OPENROUTER_MODELS]})", resp)
+    return resp.status_code < 300
+
+
+def resolve_primary_model_name(gemini_ready: bool, groq_ready: bool, openrouter_ready: bool) -> str | None:
     """Which model.name the agent should reference, given what actually got
     registered. An explicit PRIMARY_MODEL_NAME env var always wins (the
-    caller is responsible for making sure it matches a registered model);
-    otherwise prefer Gemini, fall back to Groq's first model, or None if
-    neither provider is available."""
+    caller is responsible for making sure it matches a registered model).
+    Otherwise prefer OpenRouter's minimax-m3: verified (real multi-turn
+    tool-call round trip) and, unlike Gemini/Groq's free tiers, not one
+    this project has already exhausted mid-demo -- see difficulties.md.
+    Falls back to Gemini, then Groq, then None if nothing registered."""
     if PRIMARY_MODEL_NAME_OVERRIDE:
         return PRIMARY_MODEL_NAME_OVERRIDE
+    if openrouter_ready:
+        return "openrouter/openrouter-minimax-m3"
     if gemini_ready:
         return "google-gemini/gemini-flash-lite"
     if groq_ready:
@@ -423,6 +486,7 @@ def main() -> int:
 
     gemini_ready = register_gemini_provider()
     groq_ready = register_groq_provider()
+    openrouter_ready = register_openrouter_provider()
     mcp_ready = register_mcp_server()
     register_sandbox_provider()  # optional (Daytona) -- agent still requests sandbox if this fails; see create_agent
 
@@ -430,7 +494,7 @@ def main() -> int:
         print("[FATAL] wallet MCP server registration failed -- see above.")
         return 1
 
-    model_name = resolve_primary_model_name(gemini_ready, groq_ready)
+    model_name = resolve_primary_model_name(gemini_ready, groq_ready, openrouter_ready)
     if model_name is None:
         print("[FATAL] no model provider registered -- set GEMINI_API_KEY or GROQ_API_KEY.")
         return 1
