@@ -17,7 +17,7 @@ export default function ApprovalQueue() {
 
 function TrueforgeStatus() {
   const { data, error, isLoading } = useTrueforgeSessions();
-  const sessions = Array.isArray(data) ? data : Array.isArray(data?.sessions) ? data.sessions : null;
+  const sessions = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : null;
 
   return (
     <Panel className="p-5">
@@ -53,9 +53,8 @@ function TrueforgeStatus() {
       {sessions && sessions.length > 0 ? (
         <ul className="mt-4 divide-y divide-paper-line border-t border-paper-line font-mono text-xs">
           {sessions.slice(0, 8).map((s, i) => (
-            <li key={s.id ?? i} className="flex items-center justify-between gap-4 py-2 text-paper-ink/80">
-              <span className="truncate">{s.name || s.id || `session ${i + 1}`}</span>
-              {s.status ? <span className="text-paper-muted">{s.status}</span> : null}
+            <li key={s.id ?? i} className="py-2 text-paper-ink/80">
+              <span className="truncate">{s.title || s.id || `session ${i + 1}`}</span>
             </li>
           ))}
         </ul>
