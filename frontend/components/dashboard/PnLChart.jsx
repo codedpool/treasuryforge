@@ -41,6 +41,16 @@ function Chart({ points }) {
             tickLine={false}
             width={70}
             tickFormatter={(v) => formatUsd(v)}
+            // Recharts defaults a numeric axis to start at 0, which for a
+            // ~$10k portfolio that only ever moves by single-digit dollars
+            // renders as a flat line pinned near the top of the chart --
+            // the real movement is there, just invisible against that
+            // scale. Zoom the axis to the data's own range instead (with a
+            // small 0.2%-or-$5 pad so the line isn't touching the edges).
+            domain={[
+              (dataMin) => Math.floor(dataMin - Math.max(Math.abs(dataMin) * 0.002, 5)),
+              (dataMax) => Math.ceil(dataMax + Math.max(Math.abs(dataMax) * 0.002, 5)),
+            ]}
           />
           <Tooltip
             contentStyle={{
