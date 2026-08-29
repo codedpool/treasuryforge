@@ -340,7 +340,7 @@ hand, ahead of this repo's own dashboard (see [Project status](#project-status))
 ### 3. Register everything
 
 ```bash
-cp .env.example .env   # fill in GEMINI_API_KEY and/or GROQ_API_KEY
+cp .env.example .env   # fill in at least one of OPENROUTER_API_KEY / GEMINI_API_KEY / GROQ_API_KEY
 pip install -r scripts/requirements.txt
 python scripts/setup_trueforge.py
 ```
@@ -547,13 +547,19 @@ Every debug route above is cleared by `POST /debug/reset`.
   would otherwise have during an idle stretch, without a background thread
   or cron job — but it's still bounded by how often something actually
   reads the portfolio, not true fixed-interval mark-to-market.
-- **Gemini's `gemini-flash-lite` is the default primary model**, not the
-  larger `gemini-flash`/`gemini-pro`. Under this project's free-tier key,
-  `gemini-pro` has a hard 0-request quota and `gemini-flash` exhausts fast
-  under real testing; `flash-lite` is a separate, more generous bucket.
-  `groq/qwen3.8-27b` is the fallback (the only one of three registered Groq
-  models without a `reasoning_content` compatibility bug that breaks
-  multi-turn tool calling).
+- **OpenRouter's `minimax-m3` is the default primary model**, ahead of
+  Gemini and Groq. All three get registered if their keys are present, but
+  real same-day testing surfaced hard limits in the other two: Gemini's
+  free-tier quota exhausted mid-testing, and Groq's 8,000 TPM ceiling proved
+  too tight against this agent's ~4,600-token fixed per-turn overhead.
+  OpenRouter's free-tier `minimax-m3` and `nemotron-3-super` were each
+  verified with a real multi-turn tool-call round trip before being wired
+  in — two other free models that also claimed tool support failed on the
+  first call with a provider-side 429. TrueForge's agent manifest takes one
+  `model.name`; there's no automatic runtime fallback between providers, so
+  this is a fixed preference order applied at registration time
+  (`resolve_primary_model_name` in `scripts/setup_trueforge.py`), not live
+  failover. `PRIMARY_MODEL_NAME` overrides it explicitly.
 
 ## Known limitations
 
@@ -583,7 +589,8 @@ Documented rather than silently absent:
 
 Every substantive change went through a pull request reviewed by
 [Qodo](https://qodo.ai) before merging, per the hackathon's code-review
-requirement. All six are merged into `main`:
+requirement. All eight are merged into `main` (a ninth PR, a docs-only
+README update, had nothing for Qodo to flag and isn't listed below):
 
 - **[PR #1 — Phase 1 foundation](https://github.com/codedpool/treasuryforge/pull/1)**:
   wallet MCP server, TrueForge runtime, registration script. Qodo caught —
@@ -636,7 +643,37 @@ requirement. All six are merged into `main`:
   "is one due" check and double-insert. All eight fixed and confirmed
   resolved on the follow-up pass.
 
-Every finding across all six PRs was a genuine, reproducible issue in the
+- **[PR #8 — Phase 4 frontend (initial)](https://github.com/codedpool/treasuryforge/pull/8)**:
+  the first landing page + dashboard build. Ten findings across four
+  rounds — two High-severity ones (every new wallet/TrueForge proxy route
+  was reachable with no auth of its own, since the shared secret only
+  protects the *second* hop) became the opt-in `DASHBOARD_ACCESS_SECRET`
+  Basic-Auth gate documented in [Design decisions](#design-decisions); the
+  audit export silently truncating history past 200 transactions and
+  swallowing non-portfolio fetch failures as if the data were genuinely
+  empty; and a cascade like PR #3's — switching the new UI routes to
+  synchronous handlers (to stop blocking FastAPI's event loop) made
+  concurrent day-start rollovers race for the first time, and each of the
+  next two rounds caught a new bug in that same rollover fix (a CSRF gap on
+  originless requests, then a lock-ordering bug that could still regress
+  the baseline to yesterday's date) before it was actually correct.
+- **[PR #9 — Dashboard/landing redesign, plus reliability fixes](https://github.com/codedpool/treasuryforge/pull/9)**:
+  the parchment-themed dashboard retheme. Caught a real stale-price bug (a
+  CoinGecko refresh that omitted an asset left its old cached quote
+  servable forever instead of expiring it), a cache stampede (concurrent
+  dashboard requests could all miss the cache and all fire duplicate
+  CoinGecko calls before any of them finished populating it), and two
+  below-the-fold landing images marked `priority`, competing with the
+  actual hero image for the initial load. One finding — production auth
+  failing open when `DASHBOARD_ACCESS_SECRET` is unset — was dismissed
+  rather than fixed, on the record: this project has one operator and one
+  deployment target, not a separate production environment to fail closed
+  in. A follow-up finding on the cache fix itself (one coarse lock also
+  blocks fresh-cache reads behind a slow refresh) was left as-is for the
+  same reason — only two crypto IDs ever exist, so the contention it flags
+  is real but negligible next to the correctness the lock buys.
+
+Every finding across all eight PRs was a genuine, reproducible issue in the
 diff, not a style nitpick — see each PR's review thread for the full detail.
 A few (concurrency races around the SQLite migration, equity-snapshot
 ordering, and the concentration/consecutive-losses debug helpers) needed
@@ -645,6 +682,13 @@ project's actual shape (single agent, approval-gated, local, one operator);
 those were fixed anyway since they were cheap, but are lower-stakes than
 the correctness findings that would surface under completely normal
 single-threaded use.
+
+Two small fixes landed as direct commits to `main` after PR #9 instead of
+through a reviewed PR — an approval-queue field-name bug
+(`session.name` → `session.title`) and registering OpenRouter as a third
+model provider. Both are small, low-risk, and normal end-of-project
+cleanup, but noted here rather than silently implying every line in the
+repo went through Qodo.
 
 ## Data security
 
